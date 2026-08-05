@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
 
@@ -8,7 +8,7 @@ import { AuthService } from '../../core/services/auth.service';
   styleUrls: ['./auth.component.css'],
   standalone: false
 })
-export class AuthComponent {
+export class AuthComponent implements OnInit {
   isLoginMode: boolean = true;
   
   email: string = '';
@@ -17,11 +17,22 @@ export class AuthComponent {
 
   errorMessage: string = '';
   isLoading: boolean = false;
+  showPassword: boolean = false;
 
   constructor(
     private authService: AuthService,
     private router: Router
   ) {}
+
+  ngOnInit(): void {
+    if (this.authService.isLoggedIn()) {
+      this.router.navigate(['/chat'], { replaceUrl: true });
+    }
+  }
+
+  toggleShowPassword(): void {
+    this.showPassword = !this.showPassword;
+  }
 
   toggleMode(): void {
     this.isLoginMode = !this.isLoginMode;
@@ -41,7 +52,7 @@ export class AuthComponent {
       this.authService.login(this.email, this.password).subscribe({
         next: () => {
           this.isLoading = false;
-          this.router.navigate(['/chat']);
+          this.router.navigate(['/chat'], { replaceUrl: true });
         },
         error: (err) => {
           this.isLoading = false;
@@ -52,7 +63,7 @@ export class AuthComponent {
       this.authService.register(this.email, this.password, this.name).subscribe({
         next: () => {
           this.isLoading = false;
-          this.router.navigate(['/chat']);
+          this.router.navigate(['/chat'], { replaceUrl: true });
         },
         error: (err) => {
           this.isLoading = false;

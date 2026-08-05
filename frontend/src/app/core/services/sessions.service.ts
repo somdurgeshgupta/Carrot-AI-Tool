@@ -16,7 +16,7 @@ export interface ChatSession {
   providedIn: 'root'
 })
 export class SessionsService {
-  private readonly baseUrl = 'http://localhost:3000/api/sessions';
+  private readonly baseUrl = `http://${window.location.hostname}:3000/api/sessions`;
 
   constructor(private http: HttpClient) {}
 

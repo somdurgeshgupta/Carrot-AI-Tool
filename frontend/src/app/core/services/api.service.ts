@@ -51,6 +51,8 @@ export interface ChatPayload {
   systemPrompt?: string;
   stream?: boolean;
   localServerUrl?: string;
+  ragEnabled?: boolean;
+  userId?: string;
   apiKeys?: {
     openaiApiKey?: string;
     deepseekApiKey?: string;
@@ -64,7 +66,7 @@ export interface ChatPayload {
   providedIn: 'root'
 })
 export class ApiService {
-  private readonly baseUrl = 'http://localhost:3000/api';
+  private readonly baseUrl = `http://${window.location.hostname}:3000/api`;
 
   constructor(private http: HttpClient) {}
 

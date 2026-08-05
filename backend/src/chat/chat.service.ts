@@ -6,6 +6,7 @@ import * as path from 'path';
 import axios from 'axios';
 import { Response } from 'express';
 import { SessionsService } from '../sessions/sessions.service';
+import { RagService } from '../rag/rag.service';
 
 export class ChatMessage {
   @IsString()
@@ -67,6 +68,14 @@ export class ChatRequestDto {
   @IsOptional()
   @IsObject()
   apiKeys?: ApiKeysDto;
+
+  @IsOptional()
+  @IsBoolean()
+  ragEnabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
 
 @Injectable()
@@ -76,6 +85,7 @@ export class ChatService {
   constructor(
     private readonly configService: ConfigService,
     private readonly sessionsService: SessionsService,
+    private readonly ragService: RagService,
   ) {}
 
   private refreshEnv(): void {
@@ -84,7 +94,6 @@ export class ChatService {
     dotenv.config({ path: backendPath, override: true });
     dotenv.config({ path: rootPath, override: true });
   }
-
 
   async handleChatCompletion(dto: ChatRequestDto, res?: Response) {
     this.refreshEnv();
@@ -98,14 +107,44 @@ export class ChatService {
     if (dto.systemPrompt && dto.systemPrompt.trim().length > 0) {
       formattedMessages.push({ role: 'system', content: dto.systemPrompt.trim() });
     }
+
+    // Perform RAG retrieval if enabled
+    if (dto.ragEnabled && dto.userId) {
+      const lastUserMsg = dto.messages[dto.messages.length - 1];
+      if (lastUserMsg && lastUserMsg.role === 'user') {
+        try {
+          const chunks = await this.ragService.searchSimilarChunks(dto.userId, lastUserMsg.content, 3, dto.localServerUrl);
+          if (chunks.length > 0) {
+            const contextText = chunks
+              .map((c, i) => `[Excerpt ${i + 1} from "${c.fileName}"]:\n${c.content}`)
+              .join('\n\n');
+
+            const ragInstruction = `The user has provided relevant document excerpts from their private files:\n\n--- PRIVATE DOCUMENT EXCERPTS ---\n${contextText}\n--- END EXCERPTS ---\n\nINSTRUCTIONS:\n1. If the user's question relates to the document excerpts above, use the facts from the excerpts to answer accurately.\n2. If the user's question is a general question or unrelated to these excerpts, ignore the excerpts and answer standardly.`;
+
+            formattedMessages.unshift({ role: 'system', content: ragInstruction });
+            this.logger.log(`Injected ${chunks.length} document chunks into RAG prompt context.`);
+          }
+        } catch (e: any) {
+          this.logger.warn(`RAG retrieval failed: ${e.message}`);
+        }
+      }
+    }
+
     formattedMessages.push(...dto.messages);
+
+    // Sanitize messages array: strip extra non-standard properties like isLocal, modelId before sending to AI providers (Groq, OpenAI, Gemini, etc.)
+    const cleanMessages = formattedMessages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
     const requestBody = {
       model: modelName,
-      messages: formattedMessages,
+      messages: cleanMessages,
       temperature: dto.temperature ?? 0.7,
       stream: dto.stream ?? true,
     };
+
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

@@ -17,7 +17,7 @@ export interface AuthResponse {
   providedIn: 'root'
 })
 export class AuthService {
-  private readonly baseUrl = 'http://localhost:3000/api/auth';
+  private readonly baseUrl = `http://${window.location.hostname}:3000/api/auth`;
   private readonly tokenKey = 'carrot_access_token';
 
   private currentUserSubject = new BehaviorSubject<UserProfile | null>(null);

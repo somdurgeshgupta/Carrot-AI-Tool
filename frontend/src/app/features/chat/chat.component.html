@@ -1,92 +1,169 @@
-<div class="chat-container">
-  <!-- Left Sidebar -->
-  <aside class="chat-sidebar">
-    <div class="brand-header">
-      <div class="brand-logo">🥕</div>
-      <div>
-        <div class="brand-title">Carrot AI</div>
-        <div class="brand-subtitle">Hybrid Private & Cloud Workspace</div>
-      </div>
-    </div>
+<div class="chat-container" (click)="closeHistoryPopover()">
+  <!-- Mobile Sidebar Backdrop Overlay -->
+  <div *ngIf="!isSidebarCollapsed" class="mobile-sidebar-backdrop" (click)="toggleSidebar(); $event.stopPropagation()"></div>
 
-    <button class="btn-primary new-chat-btn" (click)="createNewSession()">
-      + New Conversation
-    </button>
-
-    <!-- Sessions History List -->
-    <div class="sessions-history-section">
-      <div class="sessions-header">PAST CONVERSATIONS</div>
-      <div class="sessions-list">
-        <div 
-          *ngFor="let s of sessions" 
-          class="session-item" 
-          [class.active]="s.id === activeSessionId"
-          (click)="selectSession(s.id)"
-        >
-          <span class="session-title">{{ s.title }}</span>
-          <button class="session-delete-btn" (click)="promptDeleteSession($event, s)" title="Delete conversation">×</button>
-        </div>
-        <div *ngIf="sessions.length === 0" class="no-sessions-hint">
-          No saved conversations yet.
+  <!-- Left Sidebar (Full 260px or Collapsed 64px Rail) -->
+  <aside class="chat-sidebar" [class.collapsed]="isSidebarCollapsed">
+    <!-- Full Expanded Sidebar Content -->
+    <ng-container *ngIf="!isSidebarCollapsed">
+      <div class="brand-header">
+        <div class="brand-logo">🥕</div>
+        <div>
+          <div class="brand-title">Carrot AI</div>
+          <div class="brand-subtitle">Hybrid Private &amp; Cloud Workspace</div>
         </div>
       </div>
-    </div>
 
-    <!-- Local AI Engine Status Card -->
-    <div class="status-card">
-      <div class="status-card-header">
-        <span>LOCAL AI ENGINE</span>
-        <span class="status-dot" [class.online]="health?.localServer?.connected" [class.offline]="!health?.localServer?.connected"></span>
-      </div>
-      <div class="status-info">
-        <span>{{ health?.localServer?.connected ? 'Connected to Local Engine' : 'Local Engine Offline' }}</span>
-      </div>
-      <small style="color: var(--text-muted); font-size: 0.72rem;">
-        URL: {{ health?.localServer?.baseUrl || 'http://localhost:11434/v1' }}
-      </small>
-    </div>
-
-    <!-- Footer -->
-    <div class="sidebar-footer">
-      <button class="btn-secondary" style="width: 100%; justify-content: center;" (click)="toggleSettingsModal()">
-        ⚙️ Settings & API Keys
+      <button class="btn-primary new-chat-btn" (click)="createNewSession()">
+        + New Conversation
       </button>
-    </div>
+
+      <!-- Sessions History List -->
+      <div class="sessions-history-section">
+        <div class="sessions-header">PAST CONVERSATIONS</div>
+        <div class="sessions-list">
+          <div
+            *ngFor="let s of sessions"
+            class="session-item"
+            [class.active]="s.id === activeSessionId"
+            (click)="selectSession(s.id, $event)"
+          >
+            <span class="session-title">{{ s.title }}</span>
+            <button class="session-delete-btn" (click)="promptDeleteSession($event, s)" title="Delete conversation">×</button>
+          </div>
+          <div *ngIf="sessions.length === 0" class="no-sessions-hint">
+            No saved conversations yet.
+          </div>
+        </div>
+      </div>
+
+      <!-- Compact RAG Knowledge Base Sidebar Button -->
+      <div class="sidebar-rag-shortcut" (click)="toggleRagModal()" title="Manage RAG Knowledge Base files & settings">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span>📂 Knowledge Base</span>
+        </div>
+        <span class="rag-badge-count">{{ ragDocuments.length }} doc{{ ragDocuments.length > 1 ? 's' : '' }}</span>
+      </div>
+
+      <!-- Local AI Engine Status Card -->
+      <div class="status-card">
+        <div class="status-card-header">
+          <span>LOCAL AI ENGINE</span>
+          <span class="status-dot" [class.online]="health?.localServer?.connected" [class.offline]="!health?.localServer?.connected"></span>
+        </div>
+        <div class="status-info">
+          <span>{{ health?.localServer?.connected ? 'Connected to Local Engine' : 'Local Engine Offline' }}</span>
+        </div>
+        <small style="color: var(--text-muted); font-size: 0.72rem;">
+          URL: {{ health?.localServer?.baseUrl || 'http://localhost:11434/v1' }}
+        </small>
+      </div>
+
+      <!-- Footer -->
+      <div class="sidebar-footer">
+        <button class="btn-secondary" style="width: 100%; justify-content: center;" (click)="toggleSettingsModal()">
+          ⚙️ Settings &amp; API Keys
+        </button>
+      </div>
+    </ng-container>
+
+    <!-- Collapsed Mini Sidebar Rail (Icon Only) -->
+    <ng-container *ngIf="isSidebarCollapsed">
+      <div class="mini-rail-container">
+        <button class="mini-rail-btn" (click)="createNewSession()" title="New Conversation (+)">
+          ➕
+        </button>
+        <button class="mini-rail-btn" (click)="toggleHistoryPopover($event)" title="All Conversations (Chats)">
+          💬
+        </button>
+        <button class="mini-rail-btn" (click)="toggleRagModal()" title="Knowledge Base (RAG)">
+          📂
+        </button>
+        
+        <!-- Spacer pushes Settings to the bottom -->
+        <div class="mini-rail-spacer"></div>
+
+        <button class="mini-rail-btn" (click)="toggleSettingsModal()" title="Settings & API Keys">
+          ⚙️
+        </button>
+      </div>
+    </ng-container>
   </aside>
 
   <!-- Main Chat Workspace -->
   <main class="chat-main">
     <!-- Top Header Bar -->
     <header class="chat-header">
-      <div class="model-selector-wrapper">
-        <label for="modelSelect" style="font-weight: 600; font-size: 0.85rem; color: var(--text-muted);">ACTIVE MODEL:</label>
-        <select id="modelSelect" class="model-dropdown" [ngModel]="selectedModelId" (ngModelChange)="onModelChange($event)">
-          <optgroup label="🔒 LOCAL PRIVATE MODELS (ON YOUR PC)">
-            <option *ngFor="let m of localModels" [value]="m.id">
-              {{ m.name }} {{ m.available ? '' : '(Offline)' }}
-            </option>
-          </optgroup>
-          <optgroup label="☁️ CLOUD MODELS (API KEYS)">
-            <option *ngFor="let m of cloudModels" [value]="m.id">
-              {{ m.name }} {{ m.available ? '✓' : '(Needs API Key)' }}
-            </option>
-          </optgroup>
-        </select>
+      <div class="chat-header-left">
+        <!-- Pure Icon Sidebar Toggle Button -->
+        <button class="icon-btn-header" (click)="toggleSidebar()" [title]="isSidebarCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+          </svg>
+        </button>
 
-        <span [class]="selectedModelIsLocal ? 'badge-local' : 'badge-cloud'">
-          {{ selectedModelIsLocal ? '🔒 Private Local' : '☁️ Cloud API' }}
-        </span>
+        <div class="model-selector-wrapper">
+          <label for="modelSelect" class="model-label">ACTIVE MODEL:</label>
+          <select id="modelSelect" class="model-dropdown" [ngModel]="selectedModelId" (ngModelChange)="onModelChange($event)">
+            <optgroup label="🔒 LOCAL PRIVATE MODELS (ON YOUR PC)">
+              <option *ngFor="let m of localModels" [value]="m.id">
+                {{ m.name }} {{ m.available ? '' : '(Offline)' }}
+              </option>
+            </optgroup>
+            <optgroup label="☁️ CLOUD MODELS (API KEYS)">
+              <option *ngFor="let m of cloudModels" [value]="m.id">
+                {{ m.name }} {{ m.available ? '✓' : '(Needs API Key)' }}
+              </option>
+            </optgroup>
+          </select>
+
+          <span [class]="selectedModelIsLocal ? 'badge-local' : 'badge-cloud'">
+            {{ selectedModelIsLocal ? '🔒 Private' : '☁️ Cloud' }}
+          </span>
+        </div>
+
+        <!-- Header RAG Search Mode Toggle Group -->
+        <div class="rag-mode-selector-header" title="RAG Document Search Mode">
+          <button
+            class="rag-mode-btn-sm"
+            [class.active]="ragMode === 'auto'"
+            (click)="setRagMode('auto')"
+            title="Smart Auto Search"
+          >
+            🤖<span class="rag-btn-text"> Auto</span>
+          </button>
+          <button
+            class="rag-mode-btn-sm"
+            [class.active]="ragMode === 'always'"
+            (click)="setRagMode('always')"
+            title="Always On Search"
+          >
+            🟢<span class="rag-btn-text"> On</span>
+          </button>
+          <button
+            class="rag-mode-btn-sm"
+            [class.active]="ragMode === 'off'"
+            (click)="setRagMode('off')"
+            title="Search Off"
+          >
+            ⚪<span class="rag-btn-text"> Off</span>
+          </button>
+        </div>
       </div>
 
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <div *ngIf="currentUser" class="user-pill" style="font-size: 0.82rem; font-weight: 600; background: var(--bg-dark); padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border-medium); color: var(--text-main);">
-          👤 {{ currentUser.name || currentUser.email }}
+      <div class="chat-header-right">
+        <div *ngIf="currentUser" class="user-pill">
+          👤 <span class="user-name-text">{{ currentUser.name || currentUser.email }}</span>
         </div>
-        <button class="btn-secondary" (click)="loadModelsAndHealth()" title="Refresh connection">
-          🔄 Refresh
+        <button class="btn-secondary btn-header-action" (click)="loadModelsAndHealth()" [disabled]="isRefreshing" title="Refresh connection & models">
+          <svg class="refresh-svg-icon" [class.spinning]="isRefreshing" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          <span class="header-btn-label">{{ isRefreshing ? '...' : 'Refresh' }}</span>
         </button>
-        <button class="btn-secondary" (click)="logout()" title="Sign Out">
-          🚪 Logout
+        <button class="btn-secondary btn-header-action" (click)="logout()" title="Sign Out">
+          🚪 <span class="header-btn-label">Logout</span>
         </button>
       </div>
     </header>
@@ -113,10 +190,20 @@
             <p>Compare local vector DBs vs cloud search indexes.</p>
           </div>
         </div>
+
+        <div class="welcome-rag-hint" *ngIf="ragDocuments.length > 0 && ragActive">
+          🧠 RAG is <strong>active ({{ ragMode === 'auto' ? 'Smart Auto' : 'Always On' }})</strong> — searching {{ ragDocuments.length }} indexed document{{ ragDocuments.length > 1 ? 's' : '' }}.
+        </div>
+        <div class="welcome-rag-hint" *ngIf="ragDocuments.length > 0 && ragMode === 'off'" style="background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.12); color: #94a3b8;">
+          ⚪ RAG search is <strong>disabled (Off)</strong> — enable RAG mode in the top header to search {{ ragDocuments.length }} document{{ ragDocuments.length > 1 ? 's' : '' }}.
+        </div>
+        <div class="welcome-rag-hint" *ngIf="ragDocuments.length > 0 && !selectedModelIsLocal && ragMode !== 'off'">
+          💡 You have <strong>{{ ragDocuments.length }}</strong> document{{ ragDocuments.length > 1 ? 's' : '' }} indexed. Switch to a <strong>Local model</strong> for RAG to search documents.
+        </div>
       </div>
 
       <!-- Messages Stream -->
-      <div *ngFor="let msg of messages" class="message-item" [class.user-message]="msg.role === 'user'">
+      <div *ngFor="let msg of messages; let last = last" class="message-item" [class.user-message]="msg.role === 'user'">
         <div class="message-avatar" [class.user-avatar]="msg.role === 'user'" [class.assistant-avatar]="msg.role === 'assistant'">
           {{ msg.role === 'user' ? 'U' : '🤖' }}
         </div>
@@ -126,24 +213,24 @@
             <strong style="color: var(--text-main);">{{ getMessageModelName(msg) }}</strong>
 
             <span *ngIf="msg.role === 'assistant'" [class]="isMessageLocal(msg) ? 'badge-local' : 'badge-cloud'" style="font-size: 0.68rem;">
-              {{ isMessageLocal(msg) ? 'Local GPU/CPU' : 'Cloud API' }}
+              {{ (last && isGenerating && !msg.content) ? '⚡ Generating...' : (isMessageLocal(msg) ? 'Local GPU/CPU' : 'Cloud API') }}
             </span>
-
           </div>
-          <div class="message-text">{{ msg.role === 'user' ? msg.content : cleanResponseText(msg.content) }}</div>
-        </div>
-      </div>
 
-      <!-- Streaming Loading Indicator -->
-      <div *ngIf="isGenerating && currentStreamText.length === 0" class="message-item">
-        <div class="message-avatar assistant-avatar">🤖</div>
-        <div class="message-bubble">
-          <div class="message-meta">
-            <strong>{{ getActiveModelName() }}</strong>
-            <span class="badge-local">Generating...</span>
-          </div>
-          <div class="message-text" style="color: var(--text-muted);">
-            Thinking and generating response...
+          <div class="message-text">
+            <ng-container *ngIf="msg.role === 'user'">
+              {{ msg.content }}
+            </ng-container>
+            <ng-container *ngIf="msg.role === 'assistant'">
+              <!-- Small inline thinking text before first stream chunk arrives -->
+              <span *ngIf="last && isGenerating && !msg.content" class="thinking-text-small">
+                🧠 {{ ragActive ? 'Searching documents & thinking...' : 'Thinking and generating response...' }}
+              </span>
+              <!-- Standard response text -->
+              <span *ngIf="msg.content">
+                {{ cleanResponseText(msg.content) }}
+              </span>
+            </ng-container>
           </div>
         </div>
       </div>
@@ -155,14 +242,20 @@
         <textarea
           [(ngModel)]="userInput"
           (keydown)="onKeyDown($event)"
+          (focus)="onInputFocus()"
           placeholder="Ask your local model or cloud AI anything... (Shift+Enter for new line)"
           rows="2"
           class="chat-textarea"
         ></textarea>
 
         <div class="input-toolbar">
-          <div class="toolbar-info">
-            <span>Shift+Enter for new line</span>
+          <div class="toolbar-left">
+            <span class="rag-toolbar-pill active" *ngIf="ragActive">
+              🧠 RAG Active — {{ ragDocuments.length }} doc{{ ragDocuments.length > 1 ? 's' : '' }}
+            </span>
+            <span class="rag-toolbar-pill inactive" *ngIf="!ragActive">
+              Shift+Enter for new line
+            </span>
           </div>
           <button class="send-btn" [disabled]="isGenerating || !userInput.trim()" (click)="sendMessage()">
             <span>Send</span> 🚀
@@ -177,7 +270,7 @@
 <div *ngIf="showSettingsModal" class="modal-backdrop" (click)="toggleSettingsModal()">
   <div class="modal-content" (click)="$event.stopPropagation()">
     <div class="modal-header">
-      <h3>⚙️ Model Gateway & API Key Settings</h3>
+      <h3>⚙️ Model Gateway &amp; API Key Settings</h3>
       <button class="btn-secondary" (click)="toggleSettingsModal()">×</button>
     </div>
 
@@ -203,13 +296,93 @@
 
     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
       <button class="btn-secondary" (click)="showSettingsModal = false">Cancel</button>
-      <button class="btn-primary" (click)="saveSettings()">Save & Test Connection</button>
+      <button class="btn-primary" (click)="saveSettings()">Save &amp; Test Connection</button>
     </div>
   </div>
 </div>
 
-<!-- Confirm Delete Conversation Modal -->
-<div *ngIf="showDeleteConfirmModal" class="modal-backdrop" (click)="cancelDeleteSession()">
+<!-- Private Knowledge Base & RAG Engine Modal -->
+<div *ngIf="showRagModal" class="modal-backdrop" (click)="toggleRagModal()">
+  <div class="modal-content" (click)="$event.stopPropagation()" style="max-width: 580px;">
+    <div class="modal-header">
+      <h3 style="display: flex; align-items: center; gap: 8px; color: #f8fafc;">
+        📂 Private Knowledge Base (RAG)
+      </h3>
+      <button class="btn-secondary" (click)="toggleRagModal()">×</button>
+    </div>
+
+    <!-- Mode Selector Row -->
+    <div style="margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #0f1117; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.08);">
+      <div style="display: flex; flex-direction: column;">
+        <span style="font-size: 0.85rem; font-weight: 600; color: #f8fafc;">RAG Search Mode</span>
+        <span style="font-size: 0.72rem; color: #94a3b8;" *ngIf="ragMode === 'auto'">Smart: Searches files when prompt is relevant (>=0.30)</span>
+        <span style="font-size: 0.72rem; color: #94a3b8;" *ngIf="ragMode === 'always'">Always On: Searches files for all prompts</span>
+        <span style="font-size: 0.72rem; color: #94a3b8;" *ngIf="ragMode === 'off'">Off: Bypasses file search for pure chat</span>
+      </div>
+
+      <div class="rag-mode-selector" style="width: auto;">
+        <button class="rag-mode-btn" [class.active]="ragMode === 'auto'" (click)="setRagMode('auto')" title="Smart Auto">
+          🤖 Auto
+        </button>
+        <button class="rag-mode-btn" [class.active]="ragMode === 'always'" (click)="setRagMode('always')" title="Always On">
+          🟢 On
+        </button>
+        <button class="rag-mode-btn" [class.active]="ragMode === 'off'" (click)="setRagMode('off')" title="Off">
+          ⚪ Off
+        </button>
+      </div>
+    </div>
+
+    <!-- Upload Area -->
+    <div class="rag-upload-area" style="margin-top: 16px; padding: 16px;" (click)="triggerRagFileInput()" [class.uploading]="isUploadingRag">
+      <input #ragFileInput type="file" accept=".pdf,.txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.py,.js,.ts,.html,.css,.sql,.java,.c,.cpp" style="display:none" (change)="onRagFileSelected($event)" />
+      <span *ngIf="!isUploadingRag">
+        ⬆️ <strong>Click to Upload Document or Code File</strong>
+        <small style="margin-top: 3px;">Supports PDF, TXT, Markdown (.md), CSV, JSON & Code files (.py, .ts, .js, .sql)</small>
+      </span>
+      <span *ngIf="isUploadingRag" class="rag-spinner">
+        ⏳ Extracting text & indexing document vectors...
+      </span>
+    </div>
+
+    <!-- Upload Feedback -->
+    <div class="rag-feedback success" style="margin-top: 8px;" *ngIf="ragUploadSuccess">{{ ragUploadSuccess }}</div>
+    <div class="rag-feedback error" style="margin-top: 8px;" *ngIf="ragUploadError">{{ ragUploadError }}</div>
+
+    <!-- Documents List -->
+    <div style="margin-top: 20px;">
+      <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; margin-bottom: 10px; letter-spacing: 0.5px;">
+        INDEXED KNOWLEDGE DOCUMENTS ({{ ragDocuments.length }})
+      </div>
+
+      <div class="rag-docs-modal-list" *ngIf="ragDocuments.length > 0" style="max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
+        <div class="rag-doc-item" *ngFor="let doc of ragDocuments" style="padding: 10px 12px;">
+          <div class="rag-doc-info">
+            <span class="rag-doc-icon" style="font-size: 18px;">{{ getFileIcon(doc.fileType) }}</span>
+            <div class="rag-doc-details">
+              <span class="rag-doc-name" style="font-size: 0.88rem; max-width: 300px;" [title]="doc.fileName">{{ doc.fileName }}</span>
+              <span class="rag-doc-meta">{{ doc.chunkCount }} vector chunks • Created {{ doc.createdAt | date:'shortDate' }}</span>
+            </div>
+          </div>
+          <button class="btn-danger" style="padding: 5px 12px; font-size: 0.78rem;" (click)="promptDeleteRagDocument($event, doc)" [disabled]="isDeletingRag === doc.fileName">
+            {{ isDeletingRag === doc.fileName ? '...' : '🗑 Delete' }}
+          </button>
+        </div>
+      </div>
+
+      <div *ngIf="ragDocuments.length === 0" style="text-align: center; padding: 24px; color: #64748b; font-size: 0.85rem; font-style: italic; background: #0f1117; border-radius: 10px; border: 1px dashed rgba(255, 255, 255, 0.08);">
+        No documents uploaded yet. Click above to add private documents to your AI knowledge base.
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; margin-top: 20px;">
+      <button class="btn-primary" (click)="toggleRagModal()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete Conversation Modal (High Priority Overlay) -->
+<div *ngIf="showDeleteConfirmModal" class="modal-backdrop-confirm" (click)="cancelDeleteSession()">
   <div class="modal-content" (click)="$event.stopPropagation()" style="max-width: 420px;">
     <div class="modal-header">
       <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px;">
@@ -228,6 +401,32 @@
     <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
       <button class="btn-secondary" (click)="cancelDeleteSession()">Cancel</button>
       <button class="btn-danger" (click)="confirmDeleteSession()">Delete Permanently</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete RAG Document Modal (High Priority Overlay) -->
+<div *ngIf="showDeleteRagDocModal" class="modal-backdrop-confirm" (click)="cancelDeleteRagDocument()">
+  <div class="modal-content" (click)="$event.stopPropagation()" style="max-width: 440px;">
+    <div class="modal-header">
+      <h3 style="color: #ef4444; display: flex; align-items: center; gap: 8px;">
+        ⚠️ Delete Document from Knowledge Base?
+      </h3>
+      <button class="btn-secondary" (click)="cancelDeleteRagDocument()">×</button>
+    </div>
+
+    <div style="margin-top: 14px; font-size: 0.92rem; color: #cbd5e1; line-height: 1.5;">
+      Are you sure you want to remove <strong style="color: white;">"{{ ragDocToDelete?.fileName }}"</strong> ({{ ragDocToDelete?.chunkCount }} chunks)?
+      <p style="margin-top: 8px; font-size: 0.82rem; color: #94a3b8;">
+        This will permanently erase the file from your local disk and remove all indexed vector embeddings from your database.
+      </p>
+    </div>
+
+    <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+      <button class="btn-secondary" (click)="cancelDeleteRagDocument()">Cancel</button>
+      <button class="btn-danger" (click)="confirmDeleteRagDocument()" [disabled]="!!isDeletingRag">
+        {{ isDeletingRag ? 'Deleting...' : 'Delete Permanently' }}
+      </button>
     </div>
   </div>
 </div>
