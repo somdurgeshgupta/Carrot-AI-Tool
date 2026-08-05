@@ -1,6 +1,6 @@
 <div class="home-container">
   <div class="hero-card">
-    <div class="badge">Module-Based CSR Architecture</div>
+    <div class="badge">Carrot AI Platform</div>
     <h1>{{ welcomeMessage }}</h1>
     <p>Client-Side Rendered Angular Application connected with NestJS Backend API</p>
     
@@ -9,7 +9,7 @@
         <span class="status-icon">🚀</span>
         <h3>Angular Frontend</h3>
         <p><strong>Type:</strong> NgModule (CSR)</p>
-        <p><strong>Modules:</strong> CoreModule, SharedModule, HomeModule</p>
+        <p><strong>Modules:</strong> CoreModule, SharedModule, FeaturesModule</p>
       </div>
       
       <div class="status-card">
@@ -19,8 +19,8 @@
           <p>Connecting to backend API...</p>
         </ng-container>
         <ng-container *ngIf="!loading && apiStatus">
-          <p><span class="online-dot"></span> <strong>Status:</strong> {{ apiStatus.status | uppercase }}</p>
-          <p><strong>Service:</strong> {{ apiStatus.service }}</p>
+          <p><span class="online-dot"></span> <strong>Local AI Engine:</strong> {{ apiStatus.localServer.connected ? 'CONNECTED' : 'OFFLINE' }}</p>
+          <p><strong>Local URL:</strong> {{ apiStatus.localServer.baseUrl }}</p>
         </ng-container>
         <ng-container *ngIf="!loading && !apiStatus">
           <p class="offline-text">⚠️ Backend server offline or starting up (run <code>npm --prefix backend run start:dev</code>)</p>

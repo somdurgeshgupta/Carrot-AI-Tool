@@ -7,5 +7,11 @@
 # lockfile
 package-lock.json
 
+# environment variables
+.env
+.env.*
+!.env.example
+
 # logs
 *.log
+
