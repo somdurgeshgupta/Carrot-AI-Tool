@@ -1,0 +1,31 @@
+<div class="home-container">
+  <div class="hero-card">
+    <div class="badge">Module-Based CSR Architecture</div>
+    <h1>{{ welcomeMessage }}</h1>
+    <p>Client-Side Rendered Angular Application connected with NestJS Backend API</p>
+    
+    <div class="status-grid">
+      <div class="status-card">
+        <span class="status-icon">🚀</span>
+        <h3>Angular Frontend</h3>
+        <p><strong>Type:</strong> NgModule (CSR)</p>
+        <p><strong>Modules:</strong> CoreModule, SharedModule, HomeModule</p>
+      </div>
+      
+      <div class="status-card">
+        <span class="status-icon">⚡</span>
+        <h3>NestJS Backend Status</h3>
+        <ng-container *ngIf="loading">
+          <p>Connecting to backend API...</p>
+        </ng-container>
+        <ng-container *ngIf="!loading && apiStatus">
+          <p><span class="online-dot"></span> <strong>Status:</strong> {{ apiStatus.status | uppercase }}</p>
+          <p><strong>Service:</strong> {{ apiStatus.service }}</p>
+        </ng-container>
+        <ng-container *ngIf="!loading && !apiStatus">
+          <p class="offline-text">⚠️ Backend server offline or starting up (run <code>npm --prefix backend run start:dev</code>)</p>
+        </ng-container>
+      </div>
+    </div>
+  </div>
+</div>

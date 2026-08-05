@@ -1,0 +1,15 @@
+{
+  "name": "carrot-ai-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start:dev": "concurrently -k -p \"[{name}]\" -c \"cyan.bold,magenta.bold\" -n \"backend,frontend\" \"npm --prefix backend run start:dev\" \"npm --prefix frontend run start\"",
+    "start": "npm run start:dev",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "build": "npm run build:backend && npm run build:frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
