@@ -232,8 +232,9 @@
 
         <div class="input-toolbar">
           <div class="toolbar-left">
-            <!-- RAG Search Mode Toggle Button -->
+            <!-- RAG Search Mode Toggle Button (Visible only for Local Private Models) -->
             <button
+              *ngIf="selectedModelIsLocal"
               class="toolbar-toggle-btn rag-btn"
               [class.active]="ragMode !== 'off'"
               (click)="toggleRagMode()"
