@@ -17,10 +17,19 @@ marked.use({
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
-      return `<div class="code-block-wrapper"><div class="code-block-header"><span class="code-lang-label">${language.toUpperCase()}</span><button class="code-copy-btn" data-code="${encodeURIComponent(text)}" title="Copy code snippet">📋</button></div><pre><code class="language-${language}">${escapedCode}</code></pre></div>`;
+      return `<div class="code-block-wrapper"><div class="code-block-header"><span class="code-lang-label">${language.toUpperCase()}</span><div class="code-header-actions"><button class="code-action-btn btn-code-preview" data-preview-code="${encodeURIComponent(text)}" data-lang="${language}" title="Preview in right panel">👁️ Preview</button><button class="code-action-btn btn-code-download" data-download-code="${encodeURIComponent(text)}" data-lang="${language}" title="Download file">📥 Download</button><button class="code-copy-btn" data-code="${encodeURIComponent(text)}" title="Copy code snippet">📋</button></div></div><pre><code class="language-${language}">${escapedCode}</code></pre></div>`;
     }
   }
 });
+
+export interface AttachedFile {
+  name: string;
+  size: number;
+  type: string;
+  extension: string;
+  content: string;
+  dataUrl?: string;
+}
 
 @Component({
   selector: 'app-chat',
@@ -343,9 +352,19 @@ export class ChatComponent implements OnInit {
     }
   }
 
+  selectedModelIsVision: boolean = false;
+
   updateModelType(): void {
     const foundLocal = this.localModels.find(m => m.id === this.selectedModelId);
     this.selectedModelIsLocal = Boolean(foundLocal);
+
+    const lowerId = (this.selectedModelId || '').toLowerCase();
+    const isCloud = !this.selectedModelIsLocal || lowerId.includes('gemini') || lowerId.includes('openai') || lowerId.includes('groq');
+    this.selectedModelIsVision = isCloud || lowerId.includes('llava') || lowerId.includes('vision');
+  }
+
+  get hasAttachedImages(): boolean {
+    return this.attachedFiles.some(f => f.dataUrl && (f.dataUrl.startsWith('data:image/') || ['png','jpg','jpeg','webp','gif'].includes(f.extension)));
   }
 
   // ── RAG Mode: 'auto' (smart relevance filter), 'always', or 'off' (default: 'off')
@@ -738,6 +757,175 @@ export class ChatComponent implements OnInit {
     return cleaned || text;
   }
 
+  // ── Input Box Attached Files & Documents ────────────────────
+  attachedFiles: AttachedFile[] = [];
+
+  private async extractImageTextWithOCR(dataUrl: string): Promise<string> {
+    return new Promise((resolve) => {
+      try {
+        if (typeof window !== 'undefined' && (window as any).Tesseract) {
+          (window as any).Tesseract.recognize(dataUrl, 'eng').then((result: any) => {
+            resolve((result?.data?.text || '').trim());
+          }).catch(() => resolve(''));
+        } else if (typeof document !== 'undefined') {
+          const existingScript = document.querySelector('script[src*="tesseract"]');
+          if (existingScript) {
+            setTimeout(async () => {
+              if ((window as any).Tesseract) {
+                try {
+                  const res = await (window as any).Tesseract.recognize(dataUrl, 'eng');
+                  resolve((res?.data?.text || '').trim());
+                } catch { resolve(''); }
+              } else { resolve(''); }
+            }, 1000);
+            return;
+          }
+          const script = document.createElement('script');
+          script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          script.onload = () => {
+            if ((window as any).Tesseract) {
+              (window as any).Tesseract.recognize(dataUrl, 'eng').then((result: any) => {
+                resolve((result?.data?.text || '').trim());
+              }).catch(() => resolve(''));
+            } else {
+              resolve('');
+            }
+          };
+          script.onerror = () => resolve('');
+          document.head.appendChild(script);
+        } else {
+          resolve('');
+        }
+      } catch (e) {
+        resolve('');
+      }
+    });
+  }
+
+  onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+
+    Array.from(input.files).forEach((file) => {
+      const extension = file.name.split('.').pop()?.toLowerCase() || '';
+      const reader = new FileReader();
+
+      if (['pdf', 'png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(extension) || file.type.includes('pdf') || file.type.startsWith('image/')) {
+        reader.onload = (e) => {
+          const dataUrl = (e.target?.result as string) || '';
+          this.apiService.extractDocumentText(file.name, dataUrl).subscribe({
+            next: (res) => {
+              this.ngZone.run(() => {
+                this.attachedFiles.push({
+                  name: file.name,
+                  size: file.size,
+                  type: file.type || 'application/octet-stream',
+                  extension,
+                  content: res.text || `[Document/Image: ${file.name}]`,
+                  dataUrl
+                });
+                this.cdr.detectChanges();
+              });
+            },
+            error: async (err) => {
+              console.warn('Backend document text extraction error, trying client OCR', err);
+              const ocrText = await this.extractImageTextWithOCR(dataUrl);
+              this.ngZone.run(() => {
+                this.attachedFiles.push({
+                  name: file.name,
+                  size: file.size,
+                  type: file.type || 'application/octet-stream',
+                  extension,
+                  content: ocrText ? `[Extracted Image Text (OCR)]:\n${ocrText}` : `[Document/Image: ${file.name}]`,
+                  dataUrl
+                });
+                this.cdr.detectChanges();
+              });
+            }
+          });
+        };
+        reader.readAsDataURL(file);
+      } else if (file.type.startsWith('text/') || ['json', 'js', 'ts', 'py', 'md', 'html', 'css', 'sql', 'c', 'cpp', 'java', 'csv', 'yaml', 'yml', 'xml', 'txt', 'sh'].includes(extension)) {
+        reader.onload = (e) => {
+          const textContent = (e.target?.result as string) || '';
+          this.ngZone.run(() => {
+            this.attachedFiles.push({
+              name: file.name,
+              size: file.size,
+              type: file.type || 'text/plain',
+              extension,
+              content: textContent
+            });
+            this.cdr.detectChanges();
+          });
+        };
+        reader.readAsText(file);
+      } else {
+        reader.onload = async (e) => {
+          const dataUrl = (e.target?.result as string) || '';
+          const ocrText = await this.extractImageTextWithOCR(dataUrl);
+          this.ngZone.run(() => {
+            this.attachedFiles.push({
+              name: file.name,
+              size: file.size,
+              type: file.type || 'application/octet-stream',
+              extension,
+              content: ocrText ? `[Extracted Image Text (OCR)]:\n${ocrText}` : dataUrl,
+              dataUrl
+            });
+            this.cdr.detectChanges();
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    input.value = '';
+  }
+
+  removeAttachedFile(index: number): void {
+    this.attachedFiles.splice(index, 1);
+    this.cdr.detectChanges();
+  }
+
+  formatFileSize(bytes: number): string {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  // ── Right Side Document & Code Preview Panel ────────────────
+  previewFile: { name: string; content: string; language: string } | null = null;
+
+  openPreview(name: string, content: string, language?: string): void {
+    this.previewFile = {
+      name,
+      content,
+      language: language || (name.split('.').pop() || 'code')
+    };
+    this.cdr.detectChanges();
+  }
+
+  closePreview(): void {
+    this.previewFile = null;
+    this.cdr.detectChanges();
+  }
+
+  downloadFile(name: string, content: string): void {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  downloadPreviewFile(): void {
+    if (!this.previewFile) return;
+    this.downloadFile(this.previewFile.name, this.previewFile.content);
+  }
+
   renderMarkdown(content: string): SafeHtml {
     if (!content) return '';
     let text = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -754,6 +942,8 @@ export class ChatComponent implements OnInit {
 
   handleMarkdownClick(event: MouseEvent): void {
     const target = event.target as HTMLElement;
+
+    // 1. Copy code button
     const copyBtn = target.closest('.code-copy-btn') as HTMLButtonElement;
     if (copyBtn) {
       event.preventDefault();
@@ -769,6 +959,35 @@ export class ChatComponent implements OnInit {
           }, 2000);
         }).catch(err => console.error('Failed to copy code', err));
       }
+      return;
+    }
+
+    // 2. Preview code button
+    const previewBtn = target.closest('.btn-code-preview') as HTMLButtonElement;
+    if (previewBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const rawCode = decodeURIComponent(previewBtn.getAttribute('data-preview-code') || '');
+      const lang = previewBtn.getAttribute('data-lang') || 'code';
+      if (rawCode) {
+        const ext = lang === 'typescript' ? 'ts' : (lang === 'javascript' ? 'js' : (lang === 'python' ? 'py' : lang));
+        this.openPreview(`document.${ext}`, rawCode, lang);
+      }
+      return;
+    }
+
+    // 3. Download code button
+    const downloadBtn = target.closest('.btn-code-download') as HTMLButtonElement;
+    if (downloadBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const rawCode = decodeURIComponent(downloadBtn.getAttribute('data-download-code') || '');
+      const lang = downloadBtn.getAttribute('data-lang') || 'code';
+      if (rawCode) {
+        const ext = lang === 'typescript' ? 'ts' : (lang === 'javascript' ? 'js' : (lang === 'python' ? 'py' : (lang === 'html' ? 'html' : 'txt')));
+        this.downloadFile(`code-export.${ext}`, rawCode);
+      }
+      return;
     }
   }
 
@@ -792,7 +1011,7 @@ export class ChatComponent implements OnInit {
   // ── Send Message ───────────────────────────────────────────
 
   async sendMessage(): Promise<void> {
-    if (!this.userInput.trim() || this.isGenerating) return;
+    if ((!this.userInput.trim() && this.attachedFiles.length === 0) || this.isGenerating) return;
 
     if (!this.activeSessionId) {
       this.sessionsService.createSession('New Conversation', this.selectedModelId).subscribe({
@@ -808,25 +1027,129 @@ export class ChatComponent implements OnInit {
     await this.executeSendMessage();
   }
 
+  onPaste(event: ClipboardEvent): void {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        const blob = item.getAsFile();
+        if (blob) {
+          event.preventDefault();
+          const fileName = `screenshot_${Date.now()}.png`;
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const dataUrl = (e.target?.result as string) || '';
+            this.apiService.extractDocumentText(fileName, dataUrl).subscribe({
+              next: (res) => {
+                this.ngZone.run(() => {
+                  this.attachedFiles.push({
+                    name: fileName,
+                    size: blob.size,
+                    type: blob.type || 'image/png',
+                    extension: 'png',
+                    content: res.text || `[Screenshot: ${fileName}]`,
+                    dataUrl
+                  });
+                  this.cdr.detectChanges();
+                });
+              },
+              error: async () => {
+                const ocrText = await this.extractImageTextWithOCR(dataUrl);
+                this.ngZone.run(() => {
+                  this.attachedFiles.push({
+                    name: fileName,
+                    size: blob.size,
+                    type: blob.type || 'image/png',
+                    extension: 'png',
+                    content: ocrText ? `[Extracted Screenshot Text (OCR)]:\n${ocrText}` : dataUrl,
+                    dataUrl
+                  });
+                  this.cdr.detectChanges();
+                });
+              }
+            });
+          };
+          reader.readAsDataURL(blob);
+        }
+      }
+    }
+  }
+
+  currentAbortController: AbortController | null = null;
+
+  stopGeneration(): void {
+    if (this.currentAbortController) {
+      this.currentAbortController.abort();
+      this.currentAbortController = null;
+    }
+    if (this.activeSessionId) {
+      this.activeSessionStreams.delete(this.activeSessionId);
+    }
+    this.isGenerating = false;
+    this.cdr.detectChanges();
+  }
+
   private async executeSendMessage(): Promise<void> {
-    const userText = this.userInput.trim();
+    const rawUserPrompt = this.userInput.trim();
     this.userInput = '';
     const currentSessionId = this.activeSessionId;
 
+    const attachedSnapshots = this.attachedFiles.map(f => ({
+      name: f.name,
+      extension: f.extension,
+      size: f.size,
+      dataUrl: f.dataUrl
+    }));
+
+    const fileListToSend = this.attachedFiles.map(f => ({
+      name: f.name,
+      extension: f.extension,
+      type: f.type,
+      content: f.content,
+      dataUrl: f.dataUrl
+    }));
+
+    let modelUserText = rawUserPrompt;
+
+    if (this.attachedFiles.length > 0) {
+      let fileContexts = '';
+      this.attachedFiles.forEach((file) => {
+        let textSample = file.content;
+        if (textSample.startsWith('data:')) {
+          textSample = `[Attached Image File: "${file.name}"]`;
+        } else if (textSample.length > 20000) {
+          textSample = textSample.slice(0, 20000) + `\n[... content truncated ...]`;
+        }
+        fileContexts += `\n[Extracted Text from File "${file.name}"]:\n${textSample}\n`;
+      });
+      modelUserText = rawUserPrompt ? `${fileContexts}\n[User Question]: ${rawUserPrompt}` : `${fileContexts}\nPlease analyze the document text above and answer the question.`;
+      this.attachedFiles = [];
+    }
+
     const activeSession = this.sessions.find((s) => s.id === this.activeSessionId);
     if (activeSession && (activeSession.title === 'New Conversation' || !activeSession.title)) {
-      activeSession.title = userText.slice(0, 35) + (userText.length > 35 ? '...' : '');
+      const titleText = rawUserPrompt || (attachedSnapshots[0]?.name ? `Attached: ${attachedSnapshots[0].name}` : 'File Analysis');
+      activeSession.title = titleText.slice(0, 35) + (titleText.length > 35 ? '...' : '');
     }
 
     if (activeSession) {
       this.sessions = [activeSession, ...this.sessions.filter((s) => s.id !== activeSession.id)];
     }
 
-    this.messages.push({ role: 'user', content: userText });
+    // Push clean user message to UI (without technical template wrappers)
+    const displayMessage: ChatMessage = {
+      role: 'user',
+      content: rawUserPrompt || (attachedSnapshots.length > 0 ? `Attached ${attachedSnapshots.length} file(s)` : ''),
+      attachments: attachedSnapshots.length > 0 ? attachedSnapshots : undefined
+    };
+    this.messages.push(displayMessage);
     this.scrollToBottom();
 
     this.isGenerating = true;
     this.currentStreamText = '';
+    this.currentAbortController = new AbortController();
 
     const assistantMessage: ChatMessage = {
       role: 'assistant',
@@ -849,9 +1172,13 @@ export class ChatComponent implements OnInit {
     // Only pass RAG fields when local model is active and docs are indexed
     const useRag = this.ragActive && !!this.currentUser?.id;
 
+    // Send payload to backend with modelUserText for current turn
+    const apiMessages = this.messages.slice(0, -2).map(m => ({ role: m.role, content: m.content }));
+    apiMessages.push({ role: 'user', content: modelUserText });
+
     const payload = {
       modelId: this.selectedModelId,
-      messages: this.messages.slice(0, -1).map(m => ({ role: m.role, content: m.content })),
+      messages: apiMessages,
       sessionId: this.activeSessionId || undefined,
       temperature: this.temperature,
       systemPrompt: this.systemPrompt,
@@ -860,6 +1187,7 @@ export class ChatComponent implements OnInit {
       userId: useRag ? (this.currentUser?.id || undefined) : undefined,
       selectedDocNames: useRag && this.selectedDocNames.size > 0 ? Array.from(this.selectedDocNames) : undefined,
       webSearchEnabled: this.webSearchEnabled,
+      attachedFiles: fileListToSend.length > 0 ? fileListToSend : undefined,
       apiKeys: {
         openaiApiKey: this.openaiKey,
         deepseekApiKey: this.deepseekKey,
@@ -889,9 +1217,11 @@ export class ChatComponent implements OnInit {
         }
         if (this.activeSessionId === currentSessionId) {
           this.isGenerating = false;
+          this.currentAbortController = null;
           this.cdr.detectChanges();
         }
-      }
+      },
+      this.currentAbortController.signal
     );
 
     streamState.isGenerating = false;

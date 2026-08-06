@@ -1786,3 +1786,282 @@
   gap: 10px;
 }
 
+/* ═══════════════════════════════════════════════
+   CHATGPT STYLE MESSAGE ATTACHMENTS & THUMBNAILS
+═══════════════════════════════════════════════ */
+.msg-attachments-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.msg-attachment-card {
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  overflow: hidden;
+  max-width: 220px;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.msg-attachment-card:hover {
+  transform: translateY(-2px);
+  border-color: #3b82f6;
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.msg-img-preview {
+  width: 100%;
+  max-height: 140px;
+  overflow: hidden;
+  background: #090a0e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.msg-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.msg-att-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 0.76rem;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+
+.msg-att-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════
+   ATTACHED FILES CHIPS & SIDE-BY-SIDE PREVIEW PANEL
+═══════════════════════════════════════════════ */
+.attached-files-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.attached-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(37, 99, 235, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.attached-vision-hint {
+  width: 100%;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
+.stop-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #ffffff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35);
+}
+
+.stop-btn:hover {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.45);
+}
+
+.stop-btn:active {
+  transform: scale(0.96);
+}
+
+.file-chip-name {
+  cursor: pointer;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-chip-name:hover {
+  text-decoration: underline;
+  color: white;
+}
+
+.file-chip-size {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.file-chip-remove {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.file-chip-remove:hover {
+  color: #ef4444;
+}
+
+/* Code Header Action Buttons (Preview, Download, Copy) */
+::ng-deep .markdown-body .code-header-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+::ng-deep .markdown-body .code-action-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #cbd5e1 !important;
+  padding: 3px 9px !important;
+  border-radius: 6px !important;
+  font-size: 0.72rem !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+::ng-deep .markdown-body .code-action-btn:hover {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  border-color: #3b82f6 !important;
+}
+
+/* Right Side-by-Side Document & Code Preview Panel */
+.document-preview-panel {
+  width: 420px;
+  min-width: 340px;
+  max-width: 50vw;
+  height: 100vh;
+  background: #111319;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  flex-direction: column;
+  box-shadow: -8px 0 30px rgba(0, 0, 0, 0.5);
+  z-index: 500;
+  animation: slideInRight 0.25s ease-out;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.preview-header {
+  padding: 14px 18px;
+  background: #181b24;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.preview-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.preview-file-icon {
+  font-size: 1.5rem;
+}
+
+.preview-filename {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #f8fafc;
+  word-break: break-all;
+}
+
+.preview-lang-tag {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #60a5fa;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.preview-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-preview-action {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-preview-action:hover {
+  background: #2563eb;
+  color: white;
+  border-color: #3b82f6;
+}
+
+.preview-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  background: #090a0e;
+}
+
+.preview-body pre {
+  margin: 0;
+  font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+

@@ -40,6 +40,12 @@ export interface ChatMessage {
   content: string;
   modelId?: string;
   isLocal?: boolean;
+  attachments?: Array<{
+    name: string;
+    extension: string;
+    size?: number;
+    dataUrl?: string;
+  }>;
 }
 
 
@@ -55,6 +61,13 @@ export interface ChatPayload {
   userId?: string;
   selectedDocNames?: string[];
   webSearchEnabled?: boolean;
+  attachedFiles?: Array<{
+    name: string;
+    extension: string;
+    type: string;
+    content: string;
+    dataUrl?: string;
+  }>;
   apiKeys?: {
     openaiApiKey?: string;
     deepseekApiKey?: string;
@@ -86,7 +99,7 @@ export class ApiService {
     return this.http.get<HealthCheckResponse>(url);
   }
 
-  async streamChat(payload: ChatPayload, onChunk: (chunk: string) => void, onError: (err: any) => void): Promise<void> {
+  async streamChat(payload: ChatPayload, onChunk: (chunk: string) => void, onError: (err: any) => void, signal?: AbortSignal): Promise<void> {
     try {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -101,6 +114,7 @@ export class ApiService {
         method: 'POST',
         headers,
         body: JSON.stringify({ ...payload, stream: true }),
+        signal,
       });
 
       if (!response.ok) {
@@ -127,21 +141,27 @@ export class ApiService {
           if (!trimmed || trimmed === 'data: [DONE]') continue;
 
           if (trimmed.startsWith('data: ')) {
-            const dataStr = trimmed.replace(/^data:\s*/, '');
             try {
-              const json = JSON.parse(dataStr);
-              const content = json.choices?.[0]?.delta?.content || json.choices?.[0]?.text || '';
+              const json = JSON.parse(trimmed.substring(6));
+              const content = json.choices?.[0]?.delta?.content;
               if (content) {
                 onChunk(content);
               }
-            } catch (e) {
-              onChunk(dataStr);
+            } catch {
+              // ignore SSE parse errors
             }
           }
         }
       }
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return; // Stream canceled by user
+      }
       onError(err);
     }
+  }
+
+  extractDocumentText(fileName: string, base64: string): Observable<{ fileName: string; text: string }> {
+    return this.http.post<{ fileName: string; text: string }>(`${this.baseUrl}/chat/extract-text`, { fileName, base64 });
   }
 }

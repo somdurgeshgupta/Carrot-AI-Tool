@@ -14,4 +14,9 @@ export class ChatController {
       return res.json(result);
     }
   }
+
+  @Post('extract-text')
+  async extractText(@Body() body: { fileName: string; base64: string }) {
+    return this.chatService.extractTextFromDocument(body.fileName, body.base64);
+  }
 }

@@ -201,6 +201,19 @@
             </button>
           </div>
 
+          <!-- Attached Files Chips / Thumbnail Previews in User Message Bubble (ChatGPT Style) -->
+          <div *ngIf="msg.attachments && msg.attachments.length > 0" class="msg-attachments-container">
+            <div *ngFor="let att of msg.attachments" class="msg-attachment-card" (click)="openPreview(att.name, att.dataUrl || '', att.extension)">
+              <div *ngIf="att.dataUrl && (att.dataUrl.startsWith('data:image/') || ['png','jpg','jpeg','webp','gif'].includes(att.extension))" class="msg-img-preview">
+                <img [src]="att.dataUrl" [alt]="att.name" class="msg-thumb-img" />
+              </div>
+              <div class="msg-att-info">
+                <span class="msg-att-icon">{{ getFileIcon(att.extension) }}</span>
+                <span class="msg-att-name">{{ att.name }}</span>
+              </div>
+            </div>
+          </div>
+
           <div class="message-text markdown-body" (click)="handleMarkdownClick($event)">
             <ng-container *ngIf="msg.role === 'user'">
               {{ msg.content }}
@@ -221,17 +234,42 @@
     <!-- Bottom Input Bar -->
     <div class="input-container">
       <div class="input-box">
+        <!-- Attached Files Chips Preview Bar -->
+        <div *ngIf="attachedFiles.length > 0" class="attached-files-container">
+          <div *ngFor="let file of attachedFiles; let idx = index" class="attached-file-chip">
+            <span class="file-chip-icon">{{ getFileIcon(file.extension) }}</span>
+            <span class="file-chip-name" (click)="openPreview(file.name, file.content, file.extension)">{{ file.name }}</span>
+            <span class="file-chip-size">({{ formatFileSize(file.size) }})</span>
+            <button class="file-chip-remove" (click)="removeAttachedFile(idx)" title="Remove file">×</button>
+          </div>
+
+          <div *ngIf="hasAttachedImages && !selectedModelIsVision" class="attached-vision-hint">
+            💡 <strong>Image/Screenshot Attached:</strong> Active model is text-only. Switch to <strong>Google Gemini (Cloud API)</strong> in top dropdown for instant visual reading & screenshot analysis!
+          </div>
+        </div>
+
         <textarea
           [(ngModel)]="userInput"
           (keydown)="onKeyDown($event)"
+          (paste)="onPaste($event)"
           (focus)="onInputFocus()"
-          placeholder="Ask your local model or cloud AI anything... (Shift+Enter for new line)"
+          placeholder="Ask your local model or cloud AI anything... (Paste screenshots with Ctrl+V)"
           rows="2"
           class="chat-textarea"
         ></textarea>
 
         <div class="input-toolbar">
           <div class="toolbar-left">
+            <!-- File Attachment Button for Cloud & Local Models -->
+            <button
+              class="toolbar-toggle-btn attach-btn"
+              (click)="fileInput.click()"
+              title="Attach document or file (Code, TXT, PDF, MD, JSON, CSV, etc.)"
+            >
+              📎 <strong>Attach</strong>
+            </button>
+            <input #fileInput type="file" (change)="onFileSelected($event)" style="display: none;" multiple />
+
             <!-- RAG Search Mode Toggle Button (Visible only for Local Private Models) -->
             <button
               *ngIf="selectedModelIsLocal"
@@ -273,16 +311,49 @@
               📚 {{ selectedDocNames.size }}/{{ ragDocuments.length }} docs active
             </span>
           </div>
-          <button class="send-btn" [disabled]="isGenerating || !userInput.trim()" (click)="sendMessage()" title="Send prompt (Enter)">
+          <button *ngIf="!isGenerating" class="send-btn" [disabled]="!userInput.trim() && attachedFiles.length === 0" (click)="sendMessage()" title="Send prompt (Enter)">
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="22" y1="2" x2="11" y2="13"></line>
               <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+
+          <button *ngIf="isGenerating" class="stop-btn" (click)="stopGeneration()" title="Stop generating query in middle (Square)">
+            <span>Stop</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="4" y="4" width="16" height="16" rx="3" ry="3"></rect>
             </svg>
           </button>
         </div>
       </div>
     </div>
   </main>
+
+  <!-- Right Side-by-Side Document & File Preview Panel (Claude / ChatGPT Artifact Style) -->
+  <aside *ngIf="previewFile" class="document-preview-panel">
+    <div class="preview-header">
+      <div class="preview-title-group">
+        <span class="preview-file-icon">📄</span>
+        <div>
+          <h3 class="preview-filename">{{ previewFile.name }}</h3>
+          <span class="preview-lang-tag">{{ previewFile.language.toUpperCase() }}</span>
+        </div>
+      </div>
+
+      <div class="preview-header-actions">
+        <button class="btn-preview-action" (click)="downloadPreviewFile()" title="Download file to PC">
+          📥 Download
+        </button>
+        <button class="btn-preview-action" (click)="closePreview()" title="Close side panel">
+          ✕
+        </button>
+      </div>
+    </div>
+
+    <div class="preview-body">
+      <pre><code>{{ previewFile.content }}</code></pre>
+    </div>
+  </aside>
 </div>
 
 <!-- Option C: Chat Export Modal -->

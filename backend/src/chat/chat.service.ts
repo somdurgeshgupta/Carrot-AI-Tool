@@ -84,6 +84,16 @@ export class ChatRequestDto {
   @IsOptional()
   @IsBoolean()
   webSearchEnabled?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  attachedFiles?: Array<{
+    name: string;
+    extension: string;
+    type: string;
+    content: string;
+    dataUrl?: string;
+  }>;
 }
 
 @Injectable()
@@ -179,7 +189,48 @@ export class ChatService {
 
     formattedMessages.push(...messagesForModel);
 
-    // Sanitize messages array: strip extra non-standard properties like isLocal, modelId before sending to AI providers (Groq, OpenAI, Gemini, etc.)
+    // Automatic Server-Side OCR Text Extraction & Context Injection for Attached Files & Images:
+    if (dto.attachedFiles && dto.attachedFiles.length > 0 && lastUserMsg && lastUserMsg.role === 'user') {
+      let extractedContext = '';
+      for (const file of dto.attachedFiles) {
+        const fileData = file.dataUrl || file.content;
+        if (fileData) {
+          try {
+            const extracted = await this.extractTextFromDocument(file.name, fileData);
+            if (extracted.text && extracted.text.trim().length > 0 && !extracted.text.startsWith('data:')) {
+              extractedContext += `\n\n[Extracted Document/Image Text - "${file.name}"]:\n${extracted.text.trim()}\n`;
+              this.logger.log(`Server OCR successfully extracted ${extracted.text.length} chars from ${file.name}`);
+            }
+          } catch (e: any) {
+            this.logger.warn(`Server OCR error for ${file.name}: ${e.message}`);
+          }
+        }
+      }
+
+      if (extractedContext) {
+        const userPrompt = typeof lastUserMsg.content === 'string' ? lastUserMsg.content : 'Please analyze the extracted document text.';
+        lastUserMsg.content = `${extractedContext}\n\n[USER QUESTION]: ${userPrompt}`;
+      }
+    }
+
+    // Multimodal Vision Support for Cloud Vision endpoints (OpenAI / Groq Vision):
+    if (!isLocal && dto.attachedFiles && dto.attachedFiles.length > 0 && lastUserMsg && lastUserMsg.role === 'user') {
+      const visualFiles = dto.attachedFiles.filter(f => f.dataUrl && (f.dataUrl.startsWith('data:image/') || f.dataUrl.startsWith('data:application/pdf')));
+      if (visualFiles.length > 0) {
+        const textContent = typeof lastUserMsg.content === 'string' ? lastUserMsg.content : 'Please inspect and analyze the attached visual document.';
+        const contentParts: any[] = [{ type: 'text', text: textContent }];
+
+        for (const file of visualFiles) {
+          contentParts.push({
+            type: 'image_url',
+            image_url: { url: file.dataUrl }
+          });
+        }
+        lastUserMsg.content = contentParts as any;
+      }
+    }
+
+    // Sanitize messages array before sending to AI providers (Groq, OpenAI, Gemini, etc.)
     const cleanMessages = formattedMessages.map((m) => ({
       role: m.role,
       content: m.content,
@@ -199,6 +250,10 @@ export class ChatService {
 
     if (apiKey && apiKey.trim().length > 0) {
       headers['Authorization'] = `Bearer ${apiKey.trim()}`;
+    }
+
+    if (provider.toLowerCase() === 'gemini' && apiKey && dto.stream && res) {
+      return this.streamGeminiNative(modelName, apiKey, dto, res);
     }
 
     if (dto.stream && res) {
@@ -228,6 +283,11 @@ export class ChatService {
     }
   }
 
+  private sanitizeUtf8(text: string): string {
+    if (!text) return '';
+    return text.replace(/\0/g, '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  }
+
   private async streamChatCompletion(endpoint: string, body: any, headers: Record<string, string>, res: Response, dto: ChatRequestDto) {
     let accumulatedAssistantText = '';
 
@@ -236,7 +296,8 @@ export class ChatService {
       try {
         const lastUserMsg = dto.messages[dto.messages.length - 1];
         if (lastUserMsg && lastUserMsg.role === 'user') {
-          await this.sessionsService.appendMessage(dto.sessionId, 'user', lastUserMsg.content, dto.modelId);
+          const cleanUserText = this.sanitizeUtf8(lastUserMsg.content);
+          await this.sessionsService.appendMessage(dto.sessionId, 'user', cleanUserText, dto.modelId);
         }
       } catch (e: any) {
         this.logger.error(`Failed to pre-save user prompt: ${e.message}`);
@@ -284,8 +345,9 @@ export class ChatService {
         if (!hasSavedAssistant && dto.sessionId && accumulatedAssistantText.trim().length > 0) {
           hasSavedAssistant = true;
           try {
-            await this.sessionsService.appendMessage(dto.sessionId, 'assistant', accumulatedAssistantText, dto.modelId);
-            this.logger.log(`Saved assistant response (${accumulatedAssistantText.length} chars) to session ${dto.sessionId}`);
+            const cleanAssistantText = this.sanitizeUtf8(accumulatedAssistantText);
+            await this.sessionsService.appendMessage(dto.sessionId, 'assistant', cleanAssistantText, dto.modelId);
+            this.logger.log(`Saved assistant response (${cleanAssistantText.length} chars) to session ${dto.sessionId}`);
           } catch (e: any) {
             this.logger.error(`Failed to save assistant message: ${e.message}`);
           }
@@ -578,5 +640,180 @@ export class ChatService {
     const resultsText = snippets.map((s, i) => `[Live Web Result ${i + 1}]: ${s}`).join('\n\n');
     this.logger.log(`Web search engine returned ${snippets.length} live snippets.`);
     return resultsText;
+  }
+
+  /**
+   * Extract clean plain text from uploaded files (PDFs, JSON, TXT, Code)
+   */
+  async extractTextFromDocument(fileName: string, base64Data: string): Promise<{ fileName: string; text: string }> {
+    const fileExt = (fileName.split('.').pop() || '').toLowerCase();
+    const cleanBase64 = base64Data.replace(/^data:.*?;base64,/, '');
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    let extractedText = '';
+
+    try {
+      if (fileExt === 'pdf') {
+        const { PDFParse } = require('pdf-parse');
+        const parser = new PDFParse({ data: buffer });
+        const result = await parser.getText();
+        extractedText = result.text || '';
+        this.logger.log(`Extracted ${extractedText.length} characters of clean text from PDF ${fileName}`);
+      } else if (['png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(fileExt)) {
+        try {
+          const { recognize } = require('tesseract.js');
+          const res = await recognize(buffer, 'eng');
+          extractedText = (res.data?.text || '').trim();
+          this.logger.log(`Extracted ${extractedText.length} characters of OCR text from image ${fileName}`);
+        } catch (e: any) {
+          this.logger.warn(`Image OCR parsing failed for ${fileName}: ${e.message}`);
+        }
+      } else if (fileExt === 'json') {
+        try {
+          const parsed = JSON.parse(buffer.toString('utf-8'));
+          extractedText = JSON.stringify(parsed, null, 2);
+        } catch {
+          extractedText = buffer.toString('utf-8');
+        }
+      } else {
+        extractedText = buffer.toString('utf-8');
+      }
+    } catch (err: any) {
+      this.logger.error(`Failed to extract text from ${fileName}: ${err.message}`);
+      extractedText = buffer.toString('utf-8').replace(/[^\x20-\x7E\s\t\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    return { fileName, text: this.sanitizeUtf8(extractedText) };
+  }
+
+  /**
+   * Native Gemini Multimodal Stream Handler (Supports PDFs, Images, and Documents up to 15MB)
+   */
+  private async streamGeminiNative(modelName: string, apiKey: string, dto: ChatRequestDto, res: Response) {
+    let accumulatedAssistantText = '';
+    const cleanModel = (modelName || 'gemini-1.5-flash').replace(/^gemini:/, '');
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:streamGenerateContent?key=${apiKey}&alt=sse`;
+
+    // Convert messages to Gemini Native contents format
+    const contents: any[] = [];
+    let systemInstruction: any = undefined;
+
+    if (dto.systemPrompt && dto.systemPrompt.trim().length > 0) {
+      systemInstruction = { parts: [{ text: dto.systemPrompt.trim() }] };
+    }
+
+    for (const msg of dto.messages) {
+      const role = msg.role === 'assistant' ? 'model' : 'user';
+      const textContent = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+      const parts: any[] = [{ text: textContent || '' }];
+      contents.push({ role, parts });
+    }
+
+    // Attach native inlineData for visual documents, scanned PDFs, images, and files!
+    const lastUserObj = [...contents].reverse().find(c => c.role === 'user');
+    if (lastUserObj && dto.attachedFiles && dto.attachedFiles.length > 0) {
+      for (const file of dto.attachedFiles) {
+        if (file.dataUrl) {
+          const match = file.dataUrl.match(/^data:(.*?);base64,(.*)$/);
+          if (match) {
+            const mimeType = match[1] || (file.extension === 'pdf' ? 'application/pdf' : 'image/jpeg');
+            const data = match[2];
+            lastUserObj.parts.push({
+              inlineData: {
+                mimeType,
+                data
+              }
+            });
+            this.logger.log(`Attached ${file.name} (${mimeType}, ${data.length} b64 chars) to Gemini Native request.`);
+          }
+        }
+      }
+    }
+
+    const requestBody: any = {
+      contents,
+      generationConfig: {
+        temperature: dto.temperature ?? 0.7,
+      }
+    };
+    if (systemInstruction) {
+      requestBody.systemInstruction = systemInstruction;
+    }
+
+    try {
+      const response = await axios.post(endpoint, requestBody, {
+        headers: { 'Content-Type': 'application/json' },
+        responseType: 'stream',
+        timeout: 120000,
+      });
+
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
+
+      response.data.on('data', (chunk: Buffer) => {
+        const str = chunk.toString('utf-8');
+        const lines = str.split('\n');
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const json = JSON.parse(trimmed.replace(/^data:\s*/, ''));
+              const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+              if (text) {
+                accumulatedAssistantText += text;
+                res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+              }
+            } catch (e) {
+              // ignore partial line JSON parse errors
+            }
+          }
+        }
+      });
+
+      let hasSavedAssistant = false;
+      const saveAssistantMessage = async () => {
+        if (!hasSavedAssistant && dto.sessionId && accumulatedAssistantText.trim().length > 0) {
+          hasSavedAssistant = true;
+          try {
+            await this.sessionsService.appendMessage(dto.sessionId, 'assistant', accumulatedAssistantText, dto.modelId);
+            this.logger.log(`Saved Gemini response (${accumulatedAssistantText.length} chars) to session ${dto.sessionId}`);
+          } catch (e: any) {
+            this.logger.error(`Failed to save assistant message: ${e.message}`);
+          }
+        }
+      };
+
+      response.data.on('end', async () => {
+        res.write('data: [DONE]\n\n');
+        res.end();
+        await saveAssistantMessage();
+      });
+
+      res.on('close', async () => {
+        await saveAssistantMessage();
+      });
+    } catch (error: any) {
+      let errorMsg = 'Failed to connect to Google Gemini API';
+      if (error.response?.data) {
+        try {
+          const chunks: Buffer[] = [];
+          if (typeof error.response.data.on === 'function') {
+            for await (const chunk of error.response.data) {
+              chunks.push(Buffer.from(chunk));
+            }
+            const rawBody = Buffer.concat(chunks).toString('utf-8');
+            const parsed = JSON.parse(rawBody);
+            errorMsg = parsed.error?.message || parsed.message || rawBody;
+          }
+        } catch (e) {
+          errorMsg = error.message || errorMsg;
+        }
+      }
+      this.logger.error(`Gemini Native stream failed: ${errorMsg}`);
+      if (!res.headersSent) {
+        res.status(HttpStatus.BAD_REQUEST).json({ error: errorMsg, message: errorMsg });
+      }
+    }
   }
 }
