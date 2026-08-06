@@ -499,7 +499,7 @@ export class ChatComponent implements OnInit {
   }
 
   // ── Option D: Web Search Integration ───────────────────────
-  webSearchEnabled: boolean = false;
+  webSearchEnabled: boolean = true;
 
   toggleWebSearch(): void {
     this.webSearchEnabled = !this.webSearchEnabled;
@@ -739,6 +739,25 @@ export class ChatComponent implements OnInit {
   usePresetPrompt(prompt: string): void {
     this.userInput = prompt;
     this.sendMessage();
+  }
+
+  isUserScrolledUp: boolean = false;
+
+  onScroll(): void {
+    if (!this.scrollContainer?.nativeElement) return;
+    const el = this.scrollContainer.nativeElement;
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    this.isUserScrolledUp = !isAtBottom;
+  }
+
+  scrollToBottom(force: boolean = false): void {
+    if (!force && this.isUserScrolledUp) return;
+    try {
+      if (this.scrollContainer?.nativeElement) {
+        const el = this.scrollContainer.nativeElement;
+        el.scrollTop = el.scrollHeight;
+      }
+    } catch (err) {}
   }
 
   onKeyDown(event: KeyboardEvent): void {
@@ -1145,7 +1164,8 @@ export class ChatComponent implements OnInit {
       attachments: attachedSnapshots.length > 0 ? attachedSnapshots : undefined
     };
     this.messages.push(displayMessage);
-    this.scrollToBottom();
+    this.isUserScrolledUp = false;
+    this.scrollToBottom(true);
 
     this.isGenerating = true;
     this.currentStreamText = '';
@@ -1205,7 +1225,7 @@ export class ChatComponent implements OnInit {
 
         if (this.activeSessionId === currentSessionId) {
           this.currentStreamText = streamState.fullText;
-          this.scrollToBottom();
+          this.scrollToBottom(false);
           this.cdr.detectChanges();
         }
       },
@@ -1266,15 +1286,7 @@ export class ChatComponent implements OnInit {
 
   onInputFocus(): void {
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
-      this.scrollToBottom();
+      this.scrollToBottom(true);
     }
-  }
-
-  private scrollToBottom(): void {
-    setTimeout(() => {
-      if (this.scrollContainer) {
-        this.scrollContainer.nativeElement.scrollTop = this.scrollContainer.nativeElement.scrollHeight;
-      }
-    }, 50);
   }
 }

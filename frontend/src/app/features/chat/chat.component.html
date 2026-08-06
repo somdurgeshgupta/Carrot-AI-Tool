@@ -141,7 +141,7 @@
     </header>
 
     <!-- Chat Messages Stream Container -->
-    <div class="messages-container" #scrollContainer>
+    <div class="messages-container" #scrollContainer (scroll)="onScroll()">
       <!-- Hero Welcome Screen if Chat is Empty -->
       <div *ngIf="messages.length === 0" class="welcome-hero">
         <div class="hero-icon">🥕</div>
