@@ -50,7 +50,7 @@ export class SessionsService {
 
     const session = this.sessionRepository.create({
       title: title?.trim() || 'New Conversation',
-      modelId: modelId || 'local:llama3.2:3b',
+      modelId: modelId || 'local:qwen3:8b',
       user,
     });
 

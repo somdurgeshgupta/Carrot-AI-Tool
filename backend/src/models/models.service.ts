@@ -124,9 +124,9 @@ export class ModelsService {
       }
     } else {
       const defaultLocals = [
-        { id: 'local:llama3.2:3b', name: 'Llama 3.2 3B', desc: 'Installed local Ollama model' },
-        { id: 'local:llama3.1', name: 'Llama 3.1 8B', desc: 'Meta Llama 3.1 8B Instruct model' },
-        { id: 'local:qwen2.5', name: 'Qwen 2.5 7B', desc: 'Alibaba Qwen 2.5 7B Instruct model' },
+        { id: 'local:qwen3:8b', name: 'Qwen 3 8B', desc: 'Alibaba Qwen 3 8B Instruct Model (Default)' },
+        { id: 'local:qwen2.5-coder:7b', name: 'Qwen 2.5 Coder 7B', desc: 'Alibaba Qwen 2.5 Coder 7B Model' },
+        { id: 'local:llama3.2:3b', name: 'Llama 3.2 3B', desc: 'Meta Llama 3.2 3B Model' },
       ];
 
       for (const item of defaultLocals) {
@@ -143,6 +143,20 @@ export class ModelsService {
         });
       }
     }
+
+    // Always sort localModels so Qwen models appear at the top of the list!
+    localModels.sort((a, b) => {
+      const aIsQwen3 = a.id.toLowerCase().includes('qwen3') || a.id.toLowerCase().includes('qwen-3');
+      const bIsQwen3 = b.id.toLowerCase().includes('qwen3') || b.id.toLowerCase().includes('qwen-3');
+      if (aIsQwen3 && !bIsQwen3) return -1;
+      if (!aIsQwen3 && bIsQwen3) return 1;
+
+      const aIsQwen = a.id.toLowerCase().includes('qwen');
+      const bIsQwen = b.id.toLowerCase().includes('qwen');
+      if (aIsQwen && !bIsQwen) return -1;
+      if (!aIsQwen && bIsQwen) return 1;
+      return 0;
+    });
 
     // Strictly 100% Free Working Cloud Models List
     const cloudModels: AIModel[] = [

@@ -53,6 +53,8 @@ export interface ChatPayload {
   localServerUrl?: string;
   ragEnabled?: boolean;
   userId?: string;
+  selectedDocNames?: string[];
+  webSearchEnabled?: boolean;
   apiKeys?: {
     openaiApiKey?: string;
     deepseekApiKey?: string;

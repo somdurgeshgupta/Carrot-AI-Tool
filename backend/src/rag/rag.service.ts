@@ -125,10 +125,17 @@ export class RagService {
     query: string,
     topK = 3,
     customLocalUrl?: string,
+    selectedDocNames?: string[],
   ): Promise<RelevantChunkResult[]> {
-    const userChunks = await this.chunkRepository.find({ where: { userId } });
+    let userChunks = await this.chunkRepository.find({ where: { userId } });
     if (!userChunks || userChunks.length === 0) {
       return [];
+    }
+
+    if (selectedDocNames && selectedDocNames.length > 0) {
+      const selectedSet = new Set(selectedDocNames);
+      userChunks = userChunks.filter(c => selectedSet.has(c.fileName));
+      if (userChunks.length === 0) return [];
     }
 
     const cleanQuery = query.trim().toLowerCase();

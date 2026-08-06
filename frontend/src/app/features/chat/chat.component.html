@@ -122,34 +122,6 @@
             {{ selectedModelIsLocal ? '🔒 Private' : '☁️ Cloud' }}
           </span>
         </div>
-
-        <!-- Header RAG Search Mode Toggle Group -->
-        <div class="rag-mode-selector-header" title="RAG Document Search Mode">
-          <button
-            class="rag-mode-btn-sm"
-            [class.active]="ragMode === 'auto'"
-            (click)="setRagMode('auto')"
-            title="Smart Auto Search"
-          >
-            🤖<span class="rag-btn-text"> Auto</span>
-          </button>
-          <button
-            class="rag-mode-btn-sm"
-            [class.active]="ragMode === 'always'"
-            (click)="setRagMode('always')"
-            title="Always On Search"
-          >
-            🟢<span class="rag-btn-text"> On</span>
-          </button>
-          <button
-            class="rag-mode-btn-sm"
-            [class.active]="ragMode === 'off'"
-            (click)="setRagMode('off')"
-            title="Search Off"
-          >
-            ⚪<span class="rag-btn-text"> Off</span>
-          </button>
-        </div>
       </div>
 
       <div class="chat-header-right">
@@ -203,21 +175,33 @@
       </div>
 
       <!-- Messages Stream -->
-      <div *ngFor="let msg of messages; let last = last" class="message-item" [class.user-message]="msg.role === 'user'">
+      <div *ngFor="let msg of messages; let i = index; let last = last" class="message-item" [class.user-message]="msg.role === 'user'">
         <div class="message-avatar" [class.user-avatar]="msg.role === 'user'" [class.assistant-avatar]="msg.role === 'assistant'">
           {{ msg.role === 'user' ? 'U' : '🤖' }}
         </div>
 
         <div class="message-bubble">
           <div class="message-meta">
-            <strong style="color: var(--text-main);">{{ getMessageModelName(msg) }}</strong>
+            <div class="message-meta-info">
+              <strong style="color: var(--text-main);">{{ getMessageModelName(msg) }}</strong>
 
-            <span *ngIf="msg.role === 'assistant'" [class]="isMessageLocal(msg) ? 'badge-local' : 'badge-cloud'" style="font-size: 0.68rem;">
-              {{ (last && isGenerating && !msg.content) ? '⚡ Generating...' : (isMessageLocal(msg) ? 'Local GPU/CPU' : 'Cloud API') }}
-            </span>
+              <span *ngIf="msg.role === 'assistant'" [class]="isMessageLocal(msg) ? 'badge-local' : 'badge-cloud'" style="font-size: 0.68rem;">
+                {{ (last && isGenerating && !msg.content) ? '⚡ Generating...' : (isMessageLocal(msg) ? 'Local GPU/CPU' : 'Cloud API') }}
+              </span>
+            </div>
+
+            <!-- Copy Full Response / Prompt Button -->
+            <button
+              *ngIf="msg.content"
+              class="msg-copy-btn"
+              (click)="copyMessageText(msg.content, i)"
+              [title]="copiedMsgIndex === i ? 'Copied to clipboard!' : (msg.role === 'user' ? 'Copy prompt text' : 'Copy full AI response')"
+            >
+              {{ copiedMsgIndex === i ? '✅' : '📋' }}
+            </button>
           </div>
 
-          <div class="message-text">
+          <div class="message-text markdown-body" (click)="handleMarkdownClick($event)">
             <ng-container *ngIf="msg.role === 'user'">
               {{ msg.content }}
             </ng-container>
@@ -226,10 +210,8 @@
               <span *ngIf="last && isGenerating && !msg.content" class="thinking-text-small">
                 🧠 {{ ragActive ? 'Searching documents & thinking...' : 'Thinking and generating response...' }}
               </span>
-              <!-- Standard response text -->
-              <span *ngIf="msg.content">
-                {{ cleanResponseText(msg.content) }}
-              </span>
+              <!-- Rendered Markdown response text -->
+              <div *ngIf="msg.content" [innerHTML]="renderMarkdown(msg.content)"></div>
             </ng-container>
           </div>
         </div>
@@ -250,20 +232,82 @@
 
         <div class="input-toolbar">
           <div class="toolbar-left">
+            <!-- RAG Search Mode Toggle Button -->
+            <button
+              class="toolbar-toggle-btn rag-btn"
+              [class.active]="ragMode !== 'off'"
+              (click)="toggleRagMode()"
+              [title]="'RAG Document Search: ' + (ragMode === 'auto' ? 'Smart Auto' : (ragMode === 'always' ? 'Always ON' : 'OFF')) + ' (Click to toggle)'"
+            >
+              🧠 RAG: <strong>{{ ragMode === 'auto' ? 'AUTO' : (ragMode === 'always' ? 'ON' : 'OFF') }}</strong>
+            </button>
+
+            <!-- Option D: Web Search Toggle -->
+            <button
+              class="toolbar-toggle-btn"
+              [class.active]="webSearchEnabled"
+              (click)="toggleWebSearch()"
+              title="Toggle Live Web Search"
+            >
+              🌐 Web Search: <strong>{{ webSearchEnabled ? 'ON' : 'OFF' }}</strong>
+            </button>
+
+            <!-- Voice Input Microphone Button with Inline Audio Wave Animation -->
+            <button
+              class="toolbar-toggle-btn mic-btn"
+              [class.listening]="isListening"
+              (click)="toggleVoiceInput()"
+              [title]="isListening ? 'Listening continuously... Click to stop (Speech goes directly into input box)' : 'Voice Input (Speech-to-Text directly in input box)'"
+            >
+              <span [class.mic-pulse]="isListening">{{ isListening ? '🔴' : '🎙️' }}</span>
+              <div *ngIf="isListening" class="inline-voice-visualizer" title="Listening to your voice...">
+                <span class="inline-voice-bar vbar-1"></span>
+                <span class="inline-voice-bar vbar-2"></span>
+                <span class="inline-voice-bar vbar-3"></span>
+                <span class="inline-voice-bar vbar-4"></span>
+              </div>
+            </button>
+
             <span class="rag-toolbar-pill active" *ngIf="ragActive">
-              🧠 RAG Active — {{ ragDocuments.length }} doc{{ ragDocuments.length > 1 ? 's' : '' }}
-            </span>
-            <span class="rag-toolbar-pill inactive" *ngIf="!ragActive">
-              Shift+Enter for new line
+              📚 {{ selectedDocNames.size }}/{{ ragDocuments.length }} docs active
             </span>
           </div>
-          <button class="send-btn" [disabled]="isGenerating || !userInput.trim()" (click)="sendMessage()">
-            <span>Send</span> 🚀
+          <button class="send-btn" [disabled]="isGenerating || !userInput.trim()" (click)="sendMessage()" title="Send prompt (Enter)">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
           </button>
         </div>
       </div>
     </div>
   </main>
+</div>
+
+<!-- Option C: Chat Export Modal -->
+<div *ngIf="showExportModal" class="modal-backdrop" (click)="toggleExportModal()">
+  <div class="modal-content" (click)="$event.stopPropagation()" style="max-width: 420px;">
+    <div class="modal-header">
+      <h3>📥 Export Chat Transcript</h3>
+      <button class="btn-secondary" (click)="toggleExportModal()">×</button>
+    </div>
+
+    <div style="margin-top: 14px; font-size: 0.88rem; color: #cbd5e1; line-height: 1.5;">
+      Choose your preferred format to save the full conversation:
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 16px;">
+      <button class="btn-secondary" style="justify-content: flex-start; padding: 12px;" (click)="exportChat('md')">
+        📝 <strong>Markdown (.md)</strong> — Best for reading & documentation
+      </button>
+      <button class="btn-secondary" style="justify-content: flex-start; padding: 12px;" (click)="exportChat('json')">
+        📊 <strong>JSON (.json)</strong> — Full raw conversation data
+      </button>
+      <button class="btn-secondary" style="justify-content: flex-start; padding: 12px;" (click)="exportChat('txt')">
+        📃 <strong>Plain Text (.txt)</strong> — Standard text transcript
+      </button>
+    </div>
+  </div>
 </div>
 
 <!-- Settings & API Keys Modal -->
@@ -349,18 +393,31 @@
     <div class="rag-feedback success" style="margin-top: 8px;" *ngIf="ragUploadSuccess">{{ ragUploadSuccess }}</div>
     <div class="rag-feedback error" style="margin-top: 8px;" *ngIf="ragUploadError">{{ ragUploadError }}</div>
 
-    <!-- Documents List -->
+    <!-- Documents List with Selection Checkboxes -->
     <div style="margin-top: 20px;">
-      <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; margin-bottom: 10px; letter-spacing: 0.5px;">
-        INDEXED KNOWLEDGE DOCUMENTS ({{ ragDocuments.length }})
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+        <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; letter-spacing: 0.5px;">
+          INDEXED KNOWLEDGE DOCUMENTS ({{ selectedDocNames.size }}/{{ ragDocuments.length }} ACTIVE)
+        </div>
+        <div style="display: flex; gap: 8px;" *ngIf="ragDocuments.length > 0">
+          <button class="btn-secondary" style="font-size: 0.7rem; padding: 2px 8px;" (click)="selectAllDocs()">Select All</button>
+          <button class="btn-secondary" style="font-size: 0.7rem; padding: 2px 8px;" (click)="deselectAllDocs()">Deselect All</button>
+        </div>
       </div>
 
       <div class="rag-docs-modal-list" *ngIf="ragDocuments.length > 0" style="max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
         <div class="rag-doc-item" *ngFor="let doc of ragDocuments" style="padding: 10px 12px;">
-          <div class="rag-doc-info">
+          <div class="rag-doc-info" style="display: flex; align-items: center; gap: 10px;">
+            <input
+              type="checkbox"
+              [checked]="isDocSelected(doc.fileName)"
+              (change)="toggleDocSelection(doc.fileName)"
+              style="width: 16px; height: 16px; accent-color: #2563eb; cursor: pointer;"
+              title="Toggle inclusion in RAG search"
+            />
             <span class="rag-doc-icon" style="font-size: 18px;">{{ getFileIcon(doc.fileType) }}</span>
             <div class="rag-doc-details">
-              <span class="rag-doc-name" style="font-size: 0.88rem; max-width: 300px;" [title]="doc.fileName">{{ doc.fileName }}</span>
+              <span class="rag-doc-name" style="font-size: 0.88rem; max-width: 270px;" [title]="doc.fileName">{{ doc.fileName }}</span>
               <span class="rag-doc-meta">{{ doc.chunkCount }} vector chunks • Created {{ doc.createdAt | date:'shortDate' }}</span>
             </div>
           </div>
