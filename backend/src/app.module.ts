@@ -15,6 +15,7 @@ import { User } from './entities/user.entity';
 import { ChatSession } from './entities/chat-session.entity';
 import { ChatMessageEntity } from './entities/chat-message.entity';
 import { DocumentChunkEntity } from './entities/document-chunk.entity';
+import { AgentModule } from './agent/agent.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { DocumentChunkEntity } from './entities/document-chunk.entity';
     AuthModule,
     SessionsModule,
     RagModule,
+    AgentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

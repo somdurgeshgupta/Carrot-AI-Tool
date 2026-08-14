@@ -69,10 +69,24 @@ export class SessionsService {
     return { success: true };
   }
 
-  async appendMessage(sessionId: string, role: 'system' | 'user' | 'assistant', content: string, modelId?: string): Promise<ChatMessageEntity> {
-    const session = await this.sessionRepository.findOne({ where: { id: sessionId } });
+  async clearUserSessions(userId: string): Promise<{ success: boolean; deletedCount: number }> {
+    const sessions = await this.sessionRepository.find({ where: { user: { id: userId } } });
+    if (sessions.length > 0) {
+      await this.sessionRepository.remove(sessions);
+    }
+    return { success: true, deletedCount: sessions.length };
+  }
+
+  async appendMessage(userId: string, sessionId: string, role: 'system' | 'user' | 'assistant', content: string, modelId?: string): Promise<ChatMessageEntity> {
+    const session = await this.sessionRepository.findOne({
+      where: { id: sessionId },
+      relations: { user: true },
+    });
     if (!session) {
       throw new NotFoundException(`Session ${sessionId} not found`);
+    }
+    if (session.user.id !== userId) {
+      throw new ForbiddenException('Access to chat session denied');
     }
 
     const msg = this.messageRepository.create({

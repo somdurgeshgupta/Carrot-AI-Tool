@@ -52,10 +52,14 @@ export class RagService {
       fs.mkdirSync(userDir, { recursive: true });
     }
 
-    const targetPath = path.join(userDir, fileName);
+    const safeFileName = path.basename(fileName);
+    if (!safeFileName || safeFileName !== fileName) {
+      throw new BadRequestException('Invalid file name');
+    }
+    const targetPath = path.join(userDir, safeFileName);
     fs.writeFileSync(targetPath, fileBuffer);
 
-    const fileExt = path.extname(fileName).toLowerCase().replace('.', '') || 'txt';
+    const fileExt = path.extname(safeFileName).toLowerCase().replace('.', '') || 'txt';
     let rawText = '';
 
     try {
@@ -88,7 +92,7 @@ export class RagService {
     const chunks = this.chunkText(rawText, 800, 100);
 
     // Delete pre-existing chunks for this user & filename if re-uploading
-    await this.chunkRepository.delete({ userId, fileName });
+    await this.chunkRepository.delete({ userId, fileName: safeFileName });
 
     const chunkEntities: DocumentChunkEntity[] = [];
 
@@ -98,7 +102,7 @@ export class RagService {
 
       const entity = this.chunkRepository.create({
         userId,
-        fileName,
+        fileName: safeFileName,
         fileType: fileExt,
         chunkIndex: i,
         content: chunkText,
@@ -112,7 +116,7 @@ export class RagService {
     this.logger.log(`Indexed document [${fileName}] for user [${userId}] into ${chunkEntities.length} chunks.`);
 
     return {
-      fileName,
+      fileName: safeFileName,
       chunkCount: chunkEntities.length,
     };
   }

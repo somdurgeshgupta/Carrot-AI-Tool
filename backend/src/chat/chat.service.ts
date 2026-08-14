@@ -1,15 +1,17 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IsString, IsArray, IsOptional, IsNumber, IsBoolean, IsObject } from 'class-validator';
+import { IsString, IsArray, IsOptional, IsNumber, IsBoolean, IsObject, IsIn, Max, MaxLength, Min } from 'class-validator';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import axios from 'axios';
 import { Response } from 'express';
 import { SessionsService } from '../sessions/sessions.service';
 import { RagService } from '../rag/rag.service';
+import { assertTrustedLocalAiUrl } from '../common/local-ai-url';
+import { ModelsService } from '../models/models.service';
 
 export class ChatMessage {
-  @IsString()
+  @IsIn(['system', 'user', 'assistant'])
   role: 'system' | 'user' | 'assistant';
 
   @IsString()
@@ -51,6 +53,8 @@ export class ChatRequestDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
+  @Max(2)
   temperature?: number;
 
   @IsOptional()
@@ -86,6 +90,19 @@ export class ChatRequestDto {
   webSearchEnabled?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  localOnly?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  agentTask?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100000)
+  workspaceContext?: string;
+
+  @IsOptional()
   @IsArray()
   attachedFiles?: Array<{
     name: string;
@@ -104,6 +121,7 @@ export class ChatService {
     private readonly configService: ConfigService,
     private readonly sessionsService: SessionsService,
     private readonly ragService: RagService,
+    private readonly modelsService: ModelsService,
   ) {}
 
   private refreshEnv(): void {
@@ -113,8 +131,10 @@ export class ChatService {
     dotenv.config({ path: rootPath, override: true });
   }
 
-  async handleChatCompletion(dto: ChatRequestDto, res?: Response) {
+  async handleChatCompletion(dto: ChatRequestDto, userId: string, res?: Response) {
     this.refreshEnv();
+    const selectedModel = await this.modelsService.resolveChatModel(dto.modelId, dto.localOnly === true, dto.localServerUrl, dto.agentTask === true);
+    dto = { ...dto, modelId: selectedModel.id };
     const { provider, modelName } = this.parseModelId(dto.modelId);
     const { endpoint, apiKey, isLocal } = this.resolveEndpointAndKey(provider, dto);
 
@@ -141,15 +161,18 @@ export class ChatService {
     if (dto.systemPrompt && dto.systemPrompt.trim().length > 0) {
       formattedMessages.push({ role: 'system', content: dto.systemPrompt.trim() });
     }
+    if (dto.workspaceContext?.trim()) {
+      formattedMessages.push({ role: 'system', content: `User-selected VS Code context:\n${dto.workspaceContext.trim()}` });
+    }
 
     // Perform RAG retrieval if enabled
     const messagesForModel: ChatMessage[] = dto.messages.map((m) => ({ ...m }));
     const lastUserMsg = messagesForModel[messagesForModel.length - 1];
 
-    if (dto.ragEnabled && dto.userId && lastUserMsg && lastUserMsg.role === 'user') {
+    if (dto.ragEnabled && lastUserMsg && lastUserMsg.role === 'user') {
       try {
         const chunks = await this.ragService.searchSimilarChunks(
-          dto.userId,
+          userId,
           lastUserMsg.content,
           3,
           dto.localServerUrl,
@@ -239,8 +262,10 @@ export class ChatService {
     const requestBody = {
       model: modelName,
       messages: cleanMessages,
-      temperature: dto.temperature ?? 0.7,
+      temperature: dto.agentTask ? 0 : (dto.temperature ?? 0.7),
       stream: dto.stream ?? true,
+      ...(dto.agentTask ? { response_format: { type: 'json_object' } } : {}),
+      ...(dto.agentTask && isLocal ? { think: false } : {}),
     };
 
 
@@ -253,27 +278,52 @@ export class ChatService {
     }
 
     if (provider.toLowerCase() === 'gemini' && apiKey && dto.stream && res) {
-      return this.streamGeminiNative(modelName, apiKey, dto, res);
+      return this.streamGeminiNative(modelName, apiKey, dto, res, userId);
     }
 
     if (dto.stream && res) {
-      return this.streamChatCompletion(endpoint, requestBody, headers, res, dto);
+      return this.streamChatCompletion(endpoint, requestBody, headers, res, dto, userId);
     } else {
-      return this.fetchJsonChatCompletion(endpoint, requestBody, headers, dto);
+      const completion = dto.agentTask && selectedModel.provider === 'ollama'
+        ? await this.fetchNativeOllamaAgentCompletion(endpoint, modelName, cleanMessages)
+        : await this.fetchJsonChatCompletion(endpoint, requestBody, headers, dto, userId);
+      if (dto.agentTask && completion && typeof completion === 'object') {
+        completion.carrotAgent = { selectedModelId: dto.modelId, provider, localOnly: dto.localOnly === true, protocol: 'structured-json' };
+      }
+      return completion;
     }
   }
 
-  private async fetchJsonChatCompletion(endpoint: string, body: any, headers: Record<string, string>, dto: ChatRequestDto) {
+  private async fetchNativeOllamaAgentCompletion(openAiEndpoint: string, model: string, messages: ChatMessage[]) {
+    const endpoint = openAiEndpoint.replace(/\/v1\/chat\/completions\/?$/i, '/api/chat');
     try {
-      const response = await axios.post(endpoint, body, { headers, timeout: 60000 });
+      const response = await axios.post(endpoint, {
+        model,
+        messages,
+        stream: false,
+        format: 'json',
+        think: false,
+        options: { temperature: 0 },
+      }, { headers: { 'Content-Type': 'application/json' }, timeout: 300000 });
+      const content = response.data?.message?.content;
+      if (typeof content !== 'string' || !content.trim()) throw new Error('Ollama returned empty agent content.');
+      return { choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }] };
+    } catch (error: any) {
+      this.handleApiError(error, endpoint);
+    }
+  }
+
+  private async fetchJsonChatCompletion(endpoint: string, body: any, headers: Record<string, string>, dto: ChatRequestDto, userId: string) {
+    try {
+      const response = await axios.post(endpoint, body, { headers, timeout: dto.agentTask ? 300000 : 60000 });
       const assistantText = response.data.choices?.[0]?.message?.content || '';
       
       if (dto.sessionId && assistantText) {
         const lastUserMsg = dto.messages[dto.messages.length - 1];
         if (lastUserMsg && lastUserMsg.role === 'user') {
-          await this.sessionsService.appendMessage(dto.sessionId, 'user', lastUserMsg.content, dto.modelId);
+          await this.sessionsService.appendMessage(userId, dto.sessionId, 'user', lastUserMsg.content, dto.modelId);
         }
-        await this.sessionsService.appendMessage(dto.sessionId, 'assistant', assistantText, dto.modelId);
+        await this.sessionsService.appendMessage(userId, dto.sessionId, 'assistant', assistantText, dto.modelId);
       }
 
 
@@ -288,7 +338,7 @@ export class ChatService {
     return text.replace(/\0/g, '').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
   }
 
-  private async streamChatCompletion(endpoint: string, body: any, headers: Record<string, string>, res: Response, dto: ChatRequestDto) {
+  private async streamChatCompletion(endpoint: string, body: any, headers: Record<string, string>, res: Response, dto: ChatRequestDto, userId: string) {
     let accumulatedAssistantText = '';
 
     // Pre-save user prompt immediately to database so it is never lost on navigation or page switch
@@ -297,7 +347,7 @@ export class ChatService {
         const lastUserMsg = dto.messages[dto.messages.length - 1];
         if (lastUserMsg && lastUserMsg.role === 'user') {
           const cleanUserText = this.sanitizeUtf8(lastUserMsg.content);
-          await this.sessionsService.appendMessage(dto.sessionId, 'user', cleanUserText, dto.modelId);
+          await this.sessionsService.appendMessage(userId, dto.sessionId, 'user', cleanUserText, dto.modelId);
         }
       } catch (e: any) {
         this.logger.error(`Failed to pre-save user prompt: ${e.message}`);
@@ -346,7 +396,7 @@ export class ChatService {
           hasSavedAssistant = true;
           try {
             const cleanAssistantText = this.sanitizeUtf8(accumulatedAssistantText);
-            await this.sessionsService.appendMessage(dto.sessionId, 'assistant', cleanAssistantText, dto.modelId);
+            await this.sessionsService.appendMessage(userId, dto.sessionId, 'assistant', cleanAssistantText, dto.modelId);
             this.logger.log(`Saved assistant response (${cleanAssistantText.length} chars) to session ${dto.sessionId}`);
           } catch (e: any) {
             this.logger.error(`Failed to save assistant message: ${e.message}`);
@@ -414,7 +464,10 @@ export class ChatService {
     this.refreshEnv();
     switch (provider.toLowerCase()) {
       case 'local': {
-        const baseUrl = (dto.localServerUrl || process.env.LOCAL_AI_BASE_URL || this.configService.get<string>('LOCAL_AI_BASE_URL') || 'http://localhost:11434/v1').replace(/\/$/, '');
+        const baseUrl = assertTrustedLocalAiUrl(
+          dto.localServerUrl || process.env.LOCAL_AI_BASE_URL || this.configService.get<string>('LOCAL_AI_BASE_URL') || 'http://localhost:11434/v1',
+          process.env.LOCAL_AI_ALLOWED_HOSTS || this.configService.get<string>('LOCAL_AI_ALLOWED_HOSTS'),
+        );
         return {
           endpoint: `${baseUrl}/chat/completions`,
           isLocal: true,
@@ -476,7 +529,10 @@ export class ChatService {
         };
       }
       default: {
-        const baseUrl = (dto.localServerUrl || process.env.LOCAL_AI_BASE_URL || this.configService.get<string>('LOCAL_AI_BASE_URL') || 'http://localhost:11434/v1').replace(/\/$/, '');
+        const baseUrl = assertTrustedLocalAiUrl(
+          dto.localServerUrl || process.env.LOCAL_AI_BASE_URL || this.configService.get<string>('LOCAL_AI_BASE_URL') || 'http://localhost:11434/v1',
+          process.env.LOCAL_AI_ALLOWED_HOSTS || this.configService.get<string>('LOCAL_AI_ALLOWED_HOSTS'),
+        );
         return {
           endpoint: `${baseUrl}/chat/completions`,
           isLocal: true,
@@ -492,7 +548,7 @@ export class ChatService {
     throw new HttpException(message, status);
   }
 
-  private async performWebSearch(query: string): Promise<string> {
+  async performWebSearch(query: string): Promise<string> {
     const snippets: string[] = [];
     const lowerQuery = query.toLowerCase();
 
@@ -688,7 +744,7 @@ export class ChatService {
   /**
    * Native Gemini Multimodal Stream Handler (Supports PDFs, Images, and Documents up to 15MB)
    */
-  private async streamGeminiNative(modelName: string, apiKey: string, dto: ChatRequestDto, res: Response) {
+  private async streamGeminiNative(modelName: string, apiKey: string, dto: ChatRequestDto, res: Response, userId: string) {
     let accumulatedAssistantText = '';
     const cleanModel = (modelName || 'gemini-1.5-flash').replace(/^gemini:/, '');
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${cleanModel}:streamGenerateContent?key=${apiKey}&alt=sse`;
@@ -776,7 +832,7 @@ export class ChatService {
         if (!hasSavedAssistant && dto.sessionId && accumulatedAssistantText.trim().length > 0) {
           hasSavedAssistant = true;
           try {
-            await this.sessionsService.appendMessage(dto.sessionId, 'assistant', accumulatedAssistantText, dto.modelId);
+            await this.sessionsService.appendMessage(userId, dto.sessionId, 'assistant', accumulatedAssistantText, dto.modelId);
             this.logger.log(`Saved Gemini response (${accumulatedAssistantText.length} chars) to session ${dto.sessionId}`);
           } catch (e: any) {
             this.logger.error(`Failed to save assistant message: ${e.message}`);

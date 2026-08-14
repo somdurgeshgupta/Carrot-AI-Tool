@@ -11,6 +11,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import * as path from 'path';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RagService } from './rag.service';
 
@@ -20,14 +21,17 @@ export class RagController {
   constructor(private readonly ragService: RagService) {}
 
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024, files: 1 } }))
   async uploadDocument(@UploadedFile() file: Express.Multer.File, @Req() req: any) {
     if (!file) {
       throw new BadRequestException('No file uploaded');
     }
 
     const userId = req.user.id;
-    const fileName = file.originalname;
+    const fileName = path.basename(file.originalname);
+    if (!fileName || fileName.length > 255) {
+      throw new BadRequestException('Invalid file name');
+    }
     const fileBuffer = file.buffer;
     const mimeType = file.mimetype;
 

@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Req } from '@nestjs/common';
 import { SessionsService } from './sessions.service';
-import { CreateSessionDto, UpdateSessionDto } from './sessions.dto';
+import { AppendSessionMessageDto, CreateSessionDto, UpdateSessionDto } from './sessions.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('sessions')
@@ -23,6 +23,11 @@ export class SessionsController {
     return this.sessionsService.createSession(req.user.id, dto.title, dto.modelId);
   }
 
+  @Post(':id/messages')
+  async appendMessage(@Req() req: any, @Param('id') id: string, @Body() dto: AppendSessionMessageDto) {
+    return this.sessionsService.appendMessage(req.user.id, id, dto.role, dto.content, dto.modelId);
+  }
+
   @Patch(':id')
   async updateSessionTitle(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateSessionDto) {
     return this.sessionsService.updateSessionTitle(req.user.id, id, dto.title);
@@ -31,5 +36,10 @@ export class SessionsController {
   @Delete(':id')
   async deleteSession(@Req() req: any, @Param('id') id: string) {
     return this.sessionsService.deleteSession(req.user.id, id);
+  }
+
+  @Delete()
+  async clearSessionHistory(@Req() req: any) {
+    return this.sessionsService.clearUserSessions(req.user.id);
   }
 }

@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsIn } from 'class-validator';
 
 export class CreateSessionDto {
   @IsOptional()
@@ -13,4 +13,16 @@ export class CreateSessionDto {
 export class UpdateSessionDto {
   @IsString()
   title: string;
+}
+
+export class AppendSessionMessageDto {
+  @IsIn(['user', 'assistant'])
+  role: 'user' | 'assistant';
+
+  @IsString()
+  content: string;
+
+  @IsOptional()
+  @IsString()
+  modelId?: string;
 }

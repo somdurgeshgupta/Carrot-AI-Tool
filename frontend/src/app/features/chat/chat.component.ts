@@ -1,6 +1,5 @@
 import { Component, OnInit, ViewChild, ElementRef, ChangeDetectorRef, NgZone } from '@angular/core';
 import { Router } from '@angular/router';
-import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { marked } from 'marked';
 import { ApiService, AIModel, HealthCheckResponse, ChatMessage } from '../../core/services/api.service';
 import { AuthService, UserProfile } from '../../core/services/auth.service';
@@ -100,7 +99,6 @@ export class ChatComponent implements OnInit {
     private ragService: RagService,
     private router: Router,
     private cdr: ChangeDetectorRef,
-    private sanitizer: DomSanitizer,
     private ngZone: NgZone
   ) {}
 
@@ -945,15 +943,15 @@ export class ChatComponent implements OnInit {
     this.downloadFile(this.previewFile.name, this.previewFile.content);
   }
 
-  renderMarkdown(content: string): SafeHtml {
+  renderMarkdown(content: string): string {
     if (!content) return '';
     let text = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     if (!text && content.includes('<think>')) {
-      return this.sanitizer.bypassSecurityTrustHtml('<span class="thinking-text-small">🧠 Thinking and generating response...</span>');
+      return '<span class="thinking-text-small">🧠 Thinking and generating response...</span>';
     }
     try {
       const parsedHtml = marked.parse(text) as string;
-      return this.sanitizer.bypassSecurityTrustHtml(parsedHtml);
+      return parsedHtml;
     } catch (e) {
       return text;
     }
@@ -1204,7 +1202,6 @@ export class ChatComponent implements OnInit {
       systemPrompt: this.systemPrompt,
       localServerUrl: this.localServerUrl,
       ragEnabled: useRag,
-      userId: useRag ? (this.currentUser?.id || undefined) : undefined,
       selectedDocNames: useRag && this.selectedDocNames.size > 0 ? Array.from(this.selectedDocNames) : undefined,
       webSearchEnabled: this.webSearchEnabled,
       attachedFiles: fileListToSend.length > 0 ? fileListToSend : undefined,

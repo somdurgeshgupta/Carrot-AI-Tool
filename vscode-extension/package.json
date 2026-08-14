@@ -1,0 +1,166 @@
+{
+  "name": "carrot-vscode",
+  "displayName": "Carrot AI",
+  "description": "Connect Carrot AI to VS Code with a controlled workspace boundary.",
+  "version": "0.3.12",
+  "publisher": "carrot-ai-local",
+  "private": true,
+  "engines": {
+    "vscode": "^1.125.0"
+  },
+  "categories": ["Chat"],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onChatParticipant:carrot.agent",
+    "onView:carrot.sidebar",
+    "onCommand:carrot.open",
+    "onCommand:carrot.showHistory",
+    "onCommand:carrot.login",
+    "onCommand:carrot.logout",
+    "onCommand:carrot.selectModel",
+    "onCommand:carrot.refreshModels",
+    "onCommand:carrot.testAgentTools",
+    "onCommand:carrot.toggleLocalOnly",
+    "onCommand:carrot.newChat",
+    "onCommand:carrot.deleteCurrentChat",
+    "onCommand:carrot.clearChatHistory"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "carrot",
+          "title": "Carrot AI",
+          "icon": "resources/carrot.svg"
+        }
+      ]
+    },
+    "views": {
+      "carrot": [
+        {
+          "type": "webview",
+          "id": "carrot.sidebar",
+          "name": "Carrot AI"
+        }
+      ]
+    },
+    "chatParticipants": [
+      {
+        "id": "carrot.agent",
+        "name": "carrot",
+        "fullName": "Carrot AI",
+        "description": "Ask your private Carrot AI assistant",
+        "isSticky": true
+      }
+    ],
+    "commands": [
+      {
+        "command": "carrot.open",
+        "title": "Carrot AI: Open",
+        "shortTitle": "Open"
+      },
+      {
+        "command": "carrot.login",
+        "title": "Carrot AI: Sign In",
+        "shortTitle": "Sign In"
+      },
+      {
+        "command": "carrot.logout",
+        "title": "Carrot AI: Sign Out",
+        "shortTitle": "Sign Out"
+      },
+      {
+        "command": "carrot.selectModel",
+        "title": "Carrot AI: Select Model",
+        "shortTitle": "Select Model"
+      },
+      {
+        "command": "carrot.refreshModels",
+        "title": "Carrot AI: Refresh Models",
+        "shortTitle": "Refresh Models"
+      },
+      {
+        "command": "carrot.testAgentTools",
+        "title": "Carrot AI: Test Agent Tools",
+        "shortTitle": "Test Agent Tools"
+      },
+      {
+        "command": "carrot.toggleLocalOnly",
+        "title": "Carrot AI: Toggle Local Only Mode",
+        "shortTitle": "Toggle Local Only Mode"
+      },
+      {
+        "command": "carrot.newChat",
+        "title": "Carrot AI: New Chat",
+        "shortTitle": "New Chat",
+        "icon": "$(add)"
+      },
+      {
+        "command": "carrot.showHistory",
+        "title": "Carrot AI: Chat History",
+        "shortTitle": "Chat History",
+        "icon": "$(history)"
+      },
+      {
+        "command": "carrot.deleteCurrentChat",
+        "title": "Carrot AI: Delete Current Chat",
+        "shortTitle": "Delete Current Chat"
+      },
+      {
+        "command": "carrot.clearChatHistory",
+        "title": "Carrot AI: Clear Chat History",
+        "shortTitle": "Clear Chat History"
+      }
+    ],
+    "menus": {},
+    "configuration": {
+      "title": "Carrot AI",
+      "properties": {
+        "carrot.backendUrl": {
+          "type": "string",
+          "default": "http://localhost:3000/api",
+          "description": "Base URL of the local Carrot backend API."
+        },
+        "carrot.modelId": {
+          "type": "string",
+          "default": "auto",
+          "description": "Fallback model identifier. Prefer the Carrot AI: Select Model command."
+        },
+        "carrot.localOnly": {
+          "type": "boolean",
+          "default": true,
+          "description": "Prevent Carrot AI from selecting or calling cloud models."
+        },
+        "carrot.debugAgent": {
+          "type": "boolean",
+          "default": false,
+          "description": "Write sanitized P4 tool requests, result counts, timings, and workspace roots to the Carrot AI output channel."
+        },
+        "carrot.agentMaxToolCalls": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 4,
+          "maximum": 50,
+          "description": "Maximum workspace tool calls in one agent task. Increase this for large project reviews."
+        },
+        "carrot.agentTimeoutMinutes": {
+          "type": "integer",
+          "default": 15,
+          "minimum": 2,
+          "maximum": 60,
+          "description": "Maximum total duration of one agent task in minutes."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test out/carrotClient.test.js out/modelPolicy.test.js out/modelCompatibility.test.js out/workspacePolicy.test.js out/sidebarHtml.test.js out/sidebarProtocol.test.js out/sessionPolicy.test.js out/commandPolicy.test.js out/searchSemantics.test.js out/toolProtocol.test.js out/toolRegistry.test.js out/webSearchTool.test.js out/agentLoop.test.js out/manifest.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.125.0",
+    "typescript": "^5.7.3"
+  }
+}
