@@ -41,6 +41,7 @@ export interface ModelCatalogResponse {
   models: CarrotModel[];
   local: AIModel[];
   cloud: AIModel[];
+  defaultModelId: string;
 }
 
 export interface SystemHealthStatus {
@@ -50,6 +51,7 @@ export interface SystemHealthStatus {
 
 interface LocalDiscoveryResult { models: CarrotModel[]; error?: string }
 interface CachedDiscovery extends LocalDiscoveryResult { baseUrl: string; expiresAt: number }
+interface CachedCloudDiscovery { models: CarrotModel[]; expiresAt: number }
 
 const EMBEDDING_MODEL_PATTERNS = [
   /(^|[-_:])embed(ding)?([-_:]|$)/i,
@@ -67,7 +69,9 @@ export function classifyOllamaModelType(modelName: string): ModelType {
 export class ModelsService {
   private readonly logger = new Logger(ModelsService.name);
   private localCache?: CachedDiscovery;
+  private cloudCache?: CachedCloudDiscovery;
   private readonly cacheDurationMs = 10_000;
+  private readonly cloudCacheDurationMs = 30 * 60_000;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -84,11 +88,17 @@ export class ModelsService {
 
   async getModelCatalog(customLocalUrl?: string, forceRefresh = false): Promise<ModelCatalogResponse> {
     const localDiscovery = await this.discoverLocalModels(this.getLocalBaseUrl(customLocalUrl), forceRefresh);
-    const cloudModels = this.getCloudModels();
+    const cloudModels = await this.getCloudModels(forceRefresh);
+    const models = [...localDiscovery.models, ...cloudModels];
+    const configuredDefault = (process.env.DEFAULT_MODEL || this.configService.get<string>('DEFAULT_MODEL') || '').trim();
+    const defaultModelId = models.some((model) => model.id === configuredDefault && model.type === 'chat' && model.available)
+      ? configuredDefault
+      : 'auto';
     return {
-      models: [...localDiscovery.models, ...cloudModels],
+      models,
       local: localDiscovery.models.map((model) => this.toLegacyModel(model)),
       cloud: cloudModels.map((model) => this.toLegacyModel(model)),
+      defaultModelId,
     };
   }
 
@@ -113,6 +123,13 @@ export class ModelsService {
     }
 
     const selected = models.find((model) => model.id === requestedId);
+    if (!selected && requestedId.startsWith('local:')) {
+      const fallbackLocal = availableChatModels.find((model) => model.location === 'local');
+      if (fallbackLocal) {
+        this.logger.warn(`Local model ${requestedId} is no longer installed; using ${fallbackLocal.id}.`);
+        return fallbackLocal;
+      }
+    }
     if (!selected) throw new BadRequestException(`Selected model is unavailable: ${requestedId}`);
     if (selected.type !== 'chat') throw new BadRequestException(`Embedding model cannot be used for chat: ${requestedId}`);
     if (!selected.available) throw new ServiceUnavailableException(`Selected model is not configured or available: ${requestedId}`);
@@ -197,16 +214,54 @@ export class ModelsService {
     };
   }
 
-  private getCloudModels(): CarrotModel[] {
+  private async getCloudModels(forceRefresh = false): Promise<CarrotModel[]> {
     this.refreshEnv();
+    if (!forceRefresh && this.cloudCache?.expiresAt && this.cloudCache.expiresAt > Date.now()) {
+      return this.cloudCache.models;
+    }
     const configured = this.providerConfiguration();
-    return [
-      this.cloudModel('groq:llama-3.3-70b-versatile', 'llama-3.3-70b-versatile', 'Meta Llama 3.3 70B', 'groq', configured.groq),
-      this.cloudModel('groq:llama-3.1-8b-instant', 'llama-3.1-8b-instant', 'Meta Llama 3.1 8B Instant', 'groq', configured.groq),
-      this.cloudModel('groq:qwen/qwen3.6-27b', 'qwen/qwen3.6-27b', 'Qwen 3.6 27B', 'groq', configured.groq),
-      this.cloudModel('gemini:gemini-3.6-flash', 'gemini-3.6-flash', 'Google Gemini 3.6 Flash', 'gemini', configured.gemini),
-      this.cloudModel('gemini:gemini-3.5-flash', 'gemini-3.5-flash', 'Google Gemini 3.5 Flash', 'gemini', configured.gemini),
-    ];
+    const models: CarrotModel[] = [];
+    if (process.env.NODE_ENV === 'test') return models;
+
+    if (configured.groq) {
+      try {
+        const key = (process.env.GROQ_API_KEY || this.configService.get<string>('GROQ_API_KEY') || '').trim();
+        const response = await axios.get('https://api.groq.com/openai/v1/models', {
+          headers: { Authorization: `Bearer ${key}` }, timeout: 6000,
+        });
+        const excluded = /whisper|guard|safeguard|orpheus|embedding|tts/i;
+        for (const entry of response.data?.data || []) {
+          const name = typeof entry?.id === 'string' ? entry.id : '';
+          if (name && entry.active !== false && !excluded.test(name)) {
+            models.push(this.cloudModel(`groq:${name}`, name, this.formatModelName(name), 'groq', true));
+          }
+        }
+      } catch (error: any) {
+        this.logger.warn(`Groq model discovery failed: ${error.message}`);
+      }
+    }
+
+    if (configured.gemini) {
+      try {
+        const key = (process.env.GEMINI_API_KEY || this.configService.get<string>('GEMINI_API_KEY') || '').trim();
+        const response = await axios.get('https://generativelanguage.googleapis.com/v1beta/models', {
+          params: { key, pageSize: 1000 }, timeout: 6000,
+        });
+        const excluded = /image|tts|computer-use|deep-research|robotics|lyria|nano-banana|antigravity/i;
+        for (const entry of response.data?.models || []) {
+          const name = typeof entry?.name === 'string' ? entry.name.replace(/^models\//, '') : '';
+          const methods = Array.isArray(entry?.supportedGenerationMethods) ? entry.supportedGenerationMethods : [];
+          if (name && methods.includes('generateContent') && !excluded.test(name) && /^(gemini|gemma)-/i.test(name)) {
+            models.push(this.cloudModel(`gemini:${name}`, name, this.formatModelName(name), 'gemini', true));
+          }
+        }
+      } catch (error: any) {
+        this.logger.warn(`Gemini model discovery failed: ${error.message}`);
+      }
+    }
+
+    this.cloudCache = { models, expiresAt: Date.now() + this.cloudCacheDurationMs };
+    return models;
   }
 
   private cloudModel(id: string, model: string, name: string, provider: 'groq' | 'gemini', available: boolean): CarrotModel {

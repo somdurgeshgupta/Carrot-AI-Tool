@@ -23,6 +23,15 @@ export class SessionsService {
     });
   }
 
+  async getUserIdentity(userId: string): Promise<{ name: string; email: string }> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: { name: true, email: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    return { name: user.name?.trim() || user.email.split('@')[0], email: user.email };
+  }
+
   async getSessionWithMessages(userId: string, sessionId: string): Promise<ChatSession> {
     const session = await this.sessionRepository.findOne({
       where: { id: sessionId },
@@ -42,6 +51,28 @@ export class SessionsService {
     return session;
   }
 
+  async getCrossConversationContext(userId: string, currentSessionId?: string): Promise<string> {
+    const query = this.messageRepository.createQueryBuilder('message')
+      .innerJoin('message.session', 'session')
+      .innerJoin('session.user', 'user')
+      .where('user.id = :userId', { userId })
+      .andWhere('message.role = :role', { role: 'user' })
+      .orderBy('message.createdAt', 'DESC')
+      .take(30);
+
+    if (currentSessionId) {
+      query.andWhere('session.id != :currentSessionId', { currentSessionId });
+    }
+
+    const messages = await query.getMany();
+    return messages
+      .reverse()
+      .map((message) => message.content.trim())
+      .filter(Boolean)
+      .join('\n---\n')
+      .slice(-12_000);
+  }
+
   async createSession(userId: string, title?: string, modelId?: string): Promise<ChatSession> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
     if (!user) {
@@ -50,7 +81,7 @@ export class SessionsService {
 
     const session = this.sessionRepository.create({
       title: title?.trim() || 'New Conversation',
-      modelId: modelId || 'local:qwen3:8b',
+      modelId: modelId || 'auto',
       user,
     });
 

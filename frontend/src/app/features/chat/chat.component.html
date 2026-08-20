@@ -106,13 +106,14 @@
         <div class="model-selector-wrapper">
           <label for="modelSelect" class="model-label">ACTIVE MODEL:</label>
           <select id="modelSelect" class="model-dropdown" [ngModel]="selectedModelId" (ngModelChange)="onModelChange($event)">
+            <option value="auto">Auto (Default Model)</option>
             <optgroup label="🔒 LOCAL PRIVATE MODELS (ON YOUR PC)">
-              <option *ngFor="let m of localModels" [value]="m.id">
+              <option *ngFor="let m of localModels" [value]="m.id" [disabled]="!m.available">
                 {{ m.name }} {{ m.available ? '' : '(Offline)' }}
               </option>
             </optgroup>
             <optgroup label="☁️ CLOUD MODELS (API KEYS)">
-              <option *ngFor="let m of cloudModels" [value]="m.id">
+              <option *ngFor="let m of cloudModels" [value]="m.id" [disabled]="!m.available">
                 {{ m.name }} {{ m.available ? '✓' : '(Needs API Key)' }}
               </option>
             </optgroup>

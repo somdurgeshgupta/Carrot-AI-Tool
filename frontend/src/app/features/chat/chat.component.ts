@@ -58,8 +58,9 @@ export class ChatComponent implements OnInit {
 
   localModels: AIModel[] = [];
   cloudModels: AIModel[] = [];
-  selectedModelId: string = 'local:qwen3:8b';
+  selectedModelId: string = 'auto';
   selectedModelIsLocal: boolean = true;
+  configuredDefaultModelId: string = 'auto';
 
   health: HealthCheckResponse | null = null;
   messages: ChatMessage[] = [];
@@ -122,7 +123,7 @@ export class ChatComponent implements OnInit {
   getDefaultModelId(availableModels?: AIModel[]): string {
     const models = availableModels || [...this.localModels, ...this.cloudModels].filter(m => m.available);
     if (!models || models.length === 0) {
-      return 'local:qwen3:8b';
+      return 'auto';
     }
 
     if (typeof localStorage !== 'undefined') {
@@ -130,6 +131,10 @@ export class ChatComponent implements OnInit {
       if (pref && !pref.includes('llama') && models.some(m => m.id === pref)) {
         return pref;
       }
+    }
+
+    if (this.configuredDefaultModelId !== 'auto' && models.some(m => m.id === this.configuredDefaultModelId)) {
+      return this.configuredDefaultModelId;
     }
 
     const qwen3 = models.find(m => m.id.toLowerCase().includes('qwen3') || m.id.toLowerCase().includes('qwen-3'));
@@ -211,7 +216,10 @@ export class ChatComponent implements OnInit {
             const savedPref = typeof localStorage !== 'undefined' ? localStorage.getItem('carrot_preferred_model') : null;
             this.selectedModelId = savedPref || this.getDefaultModelId();
           } else {
-            this.selectedModelId = session.modelId;
+            const loadedModels = [...this.localModels, ...this.cloudModels];
+            this.selectedModelId = loadedModels.length === 0 || loadedModels.some(m => m.id === session.modelId)
+              ? session.modelId
+              : this.getDefaultModelId();
           }
           this.updateModelType();
         }
@@ -311,15 +319,13 @@ export class ChatComponent implements OnInit {
 
     this.apiService.getModels(this.localServerUrl).subscribe({
       next: (data) => {
-        this.localModels = data.local;
-        this.cloudModels = data.cloud;
+        this.localModels = data.local.filter(m => m.type === 'chat');
+        this.cloudModels = data.cloud.filter(m => m.type === 'chat');
+        this.configuredDefaultModelId = data.defaultModelId || 'auto';
 
         const allAvailable = [...this.localModels, ...this.cloudModels].filter(m => m.available);
-        const qwenModel = allAvailable.find(m => m.id.toLowerCase().includes('qwen'));
-        if (qwenModel) {
-          this.selectedModelId = qwenModel.id;
-        } else if (allAvailable.length > 0) {
-          this.selectedModelId = allAvailable[0].id;
+        if (!allAvailable.some(m => m.id === this.selectedModelId)) {
+          this.selectedModelId = this.getDefaultModelId(allAvailable);
         }
         this.updateModelType();
 
@@ -497,7 +503,7 @@ export class ChatComponent implements OnInit {
   }
 
   // ── Option D: Web Search Integration ───────────────────────
-  webSearchEnabled: boolean = true;
+  webSearchEnabled: boolean = false;
 
   toggleWebSearch(): void {
     this.webSearchEnabled = !this.webSearchEnabled;

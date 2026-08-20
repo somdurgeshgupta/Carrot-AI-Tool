@@ -12,11 +12,13 @@ export interface AIModel {
   contextWindow: number;
   badge: string;
   available: boolean;
+  type: 'chat' | 'embedding';
 }
 
 export interface ModelCatalogResponse {
   local: AIModel[];
   cloud: AIModel[];
+  defaultModelId: string;
 }
 
 export interface HealthCheckResponse {

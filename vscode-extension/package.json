@@ -2,7 +2,7 @@
   "name": "carrot-vscode",
   "displayName": "Carrot AI",
   "description": "Connect Carrot AI to VS Code with a controlled workspace boundary.",
-  "version": "0.3.12",
+  "version": "0.3.14",
   "publisher": "carrot-ai-local",
   "private": true,
   "engines": {
@@ -123,8 +123,8 @@
         },
         "carrot.modelId": {
           "type": "string",
-          "default": "auto",
-          "description": "Fallback model identifier. Prefer the Carrot AI: Select Model command."
+          "default": "local:qwen2.5-coder:7b",
+          "description": "Fallback coding model identifier. Prefer the Carrot AI: Select Model command."
         },
         "carrot.localOnly": {
           "type": "boolean",

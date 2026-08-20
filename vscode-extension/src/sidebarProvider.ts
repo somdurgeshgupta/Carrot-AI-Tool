@@ -17,6 +17,8 @@ export const CARROT_VIEW_ID = 'carrot.sidebar';
 export const MODEL_KEY = 'carrot.selectedModel';
 export const SESSION_KEY = 'carrot.currentSessionId';
 export const TOKEN_KEY = 'carrot.accessToken';
+export const MODE_KEY = 'carrot.composerMode';
+export const DEFAULT_EXTENSION_MODEL_ID = 'local:qwen2.5-coder:7b';
 const WEB_SEARCH_KEY = 'carrot.webSearchEnabled';
 
 interface PendingContext { id: string; label: string; content: string; }
@@ -53,10 +55,11 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
     const authenticated = Boolean(await this.context.secrets.get(TOKEN_KEY));
     const configuration = vscode.workspace.getConfiguration('carrot');
     const selectedModelId = this.context.globalState.get<string>(MODEL_KEY)
-      ?? configuration.get<string>('modelId', 'auto');
+      ?? configuration.get<string>('modelId', DEFAULT_EXTENSION_MODEL_ID);
+    const mode = this.context.globalState.get<'ask' | 'agent'>(MODE_KEY, 'ask');
     const localOnly = configuration.get<boolean>('localOnly', true);
     if (!authenticated) {
-      await this.postState({ authenticated, selectedModelId, localOnly, models: [], sessions: [], error: false });
+      await this.postState({ authenticated, selectedModelId, mode, localOnly, models: [], sessions: [], error: false });
       return;
     }
 
@@ -73,6 +76,7 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
       await this.postState({
         authenticated,
         selectedModelId,
+        mode,
         localOnly,
         models,
         sessions,
@@ -87,6 +91,7 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
       await this.postState({
         authenticated,
         selectedModelId,
+        mode,
         localOnly,
         models: [],
         sessions: [],
@@ -132,6 +137,10 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
         case 'setWebSearch':
           await this.context.workspaceState.update(WEB_SEARCH_KEY, message.enabled);
           await this.post({ type: 'webSearchState', enabled: message.enabled });
+          break;
+        case 'setMode':
+          await this.context.globalState.update(MODE_KEY, message.mode);
+          await this.postState({ mode: message.mode });
           break;
         case 'addContext':
           await this.addContext(message.kind);
@@ -200,6 +209,7 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async sendMessage(prompt: string, mode: 'ask' | 'agent', webSearch: boolean): Promise<void> {
+    await this.context.globalState.update(MODE_KEY, mode);
     await this.context.workspaceState.update(WEB_SEARCH_KEY, webSearch);
     const selectedContext = this.contextText();
     this.pendingContexts = [];
@@ -215,7 +225,7 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
     try {
       const api = this.client();
       const configuration = vscode.workspace.getConfiguration('carrot');
-      const modelId = this.context.globalState.get<string>(MODEL_KEY) ?? configuration.get<string>('modelId', 'auto');
+      const modelId = this.context.globalState.get<string>(MODEL_KEY) ?? configuration.get<string>('modelId', DEFAULT_EXTENSION_MODEL_ID);
       const localOnly = configuration.get<boolean>('localOnly', true);
       validateModelSelection(await api.getModels(), modelId, localOnly);
       let sessionId = this.context.workspaceState.get<string>(SESSION_KEY);
@@ -248,7 +258,7 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
     try {
       const api = this.client();
       const configuration = vscode.workspace.getConfiguration('carrot');
-      const modelId = this.context.globalState.get<string>(MODEL_KEY) ?? configuration.get<string>('modelId', 'auto');
+      const modelId = this.context.globalState.get<string>(MODEL_KEY) ?? configuration.get<string>('modelId', DEFAULT_EXTENSION_MODEL_ID);
       activeModelId = modelId;
       const localOnly = configuration.get<boolean>('localOnly', true);
       const debugAgent = configuration.get<boolean>('debugAgent', false);
@@ -437,7 +447,7 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
-    const modelId = this.context.globalState.get<string>(MODEL_KEY) ?? 'auto';
+    const modelId = this.context.globalState.get<string>(MODEL_KEY) ?? DEFAULT_EXTENSION_MODEL_ID;
     const sessionId = await api.createSession(modelId);
     await this.context.workspaceState.update(SESSION_KEY, sessionId);
     await this.refresh();

@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
 import { CarrotClient, CarrotClientError } from './carrotClient';
 import { CarrotModel, selectableChatModels, validateModelSelection } from './modelPolicy';
-import { CARROT_VIEW_ID, CarrotSidebarProvider, MODEL_KEY, SESSION_KEY, TOKEN_KEY } from './sidebarProvider';
+import { CARROT_VIEW_ID, CarrotSidebarProvider, DEFAULT_EXTENSION_MODEL_ID, MODEL_KEY, SESSION_KEY, TOKEN_KEY } from './sidebarProvider';
 import { AgentLoop, looksLikeProjectTask } from './agentLoop';
 import { createWorkspaceToolRegistry } from './workspaceTools';
 
 export function activate(context: vscode.ExtensionContext): void {
   const configuration = () => vscode.workspace.getConfiguration('carrot');
   const selectedModel = () => context.globalState.get<string>(MODEL_KEY)
-    ?? configuration().get<string>('modelId', 'auto');
+    ?? configuration().get<string>('modelId', DEFAULT_EXTENSION_MODEL_ID);
   const localOnly = () => configuration().get<boolean>('localOnly', true);
   const client = () => new CarrotClient({
     baseUrl: configuration().get<string>('backendUrl', 'http://localhost:3000/api'),

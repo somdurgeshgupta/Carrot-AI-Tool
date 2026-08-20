@@ -8,6 +8,7 @@ export type SidebarMessage =
   | { type: 'toggleLocalOnly'; enabled: boolean }
   | { type: 'sendMessage'; prompt: string; mode: 'ask' | 'agent'; webSearch: boolean }
   | { type: 'setWebSearch'; enabled: boolean }
+  | { type: 'setMode'; mode: 'ask' | 'agent' }
   | { type: 'addContext'; kind: 'currentFile' | 'selection' | 'file' }
   | { type: 'removeContext'; contextId: string }
   | { type: 'newChat' }
@@ -32,6 +33,7 @@ export function parseSidebarMessage(value: unknown): SidebarMessage | undefined 
     return { type: record.type, enabled: record.enabled };
   }
   if (record.type === 'setWebSearch' && typeof record.enabled === 'boolean') return { type: record.type, enabled: record.enabled };
+  if (record.type === 'setMode' && (record.mode === 'ask' || record.mode === 'agent')) return { type: record.type, mode: record.mode };
   if (record.type === 'addContext' && (record.kind === 'currentFile' || record.kind === 'selection' || record.kind === 'file')) return { type: record.type, kind: record.kind };
   if (record.type === 'removeContext' && safeText(record.contextId, 100)) return { type: record.type, contextId: record.contextId as string };
   if (record.type === 'selectModel' && safeText(record.modelId, 300)) {

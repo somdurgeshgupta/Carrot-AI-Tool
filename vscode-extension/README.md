@@ -4,9 +4,11 @@ Carrot has a dedicated Activity Bar container and themed sidebar, while retainin
 
 The sidebar follows a conversation-first layout: a compact model/header menu, animated high-level working status, independent conversation scrolling, an auto-growing composer, and a separate history view. Successful temporary activity collapses after the final response; errors remain visible. The UI never exposes hidden model reasoning.
 
-The composer provides **Ask / Agent** modes, a Stop action during either mode, and a compact **+ Tools** menu. Context actions can add the current workspace file, the current selection, or a chosen workspace file. Context content stays in extension-host memory; the Webview receives labels only, sensitive filenames are blocked, and explicit context is cleared after sending.
+The composer provides **Ask / Agent** modes, defaults to **Ask**, and remembers a manual mode selection across sidebar navigation and VS Code reloads. It also provides a Stop action during either mode and a compact **+ Tools** menu. Context actions can add the current workspace file, the current selection, or a chosen workspace file. Context content stays in extension-host memory; the Webview receives labels only, sensitive filenames are blocked, and explicit context is cleared after sending.
 
 **Web Search** is OFF by default. When enabled, Agent mode receives an authenticated, query-bounded `web_search` tool backed by Carrot's existing internet search service; when disabled, that tool is absent from the registry. Ask mode uses the existing streaming-chat web context. Local Only still controls model routing independently: internet retrieval may run, but inference remains on an available local model.
+
+Authenticated sidebar and `@carrot` conversations use the signed-in Carrot AI profile and that user's private cross-conversation context from the backend. Profile and conversation memory are isolated by the authenticated user ID and are never stored as shared extension state.
 
 ## Project agent
 
@@ -32,7 +34,7 @@ This extension is the VS Code-side authority for Carrot AI. It connects to the e
 6. Run **Carrot AI: Select Model**, or leave the selection on local-first **Auto**.
 7. Click the Carrot icon in the Activity Bar and send a message from the dedicated sidebar. The existing `@carrot hello` interface also remains available.
 
-The backend URL is configurable with `carrot.backendUrl`; it defaults to `http://localhost:3000/api`. Model selection persists in VS Code global state. **Carrot AI: Refresh Models** re-reads the real Ollama inventory, so installing or removing a local model does not require extension code changes.
+The backend URL is configurable with `carrot.backendUrl`; it defaults to `http://localhost:3000/api`. The extension defaults to the coding-focused `local:qwen2.5-coder:7b`, while model selection persists in VS Code global state. **Carrot AI: Refresh Models** re-reads the real Ollama inventory, so installing or removing a local model does not require extension code changes.
 
 `carrot.localOnly` defaults to `true`. While enabled, cloud models are hidden and the backend rejects cloud model requests. Embedding models can be discovered but are never offered for chat.
 

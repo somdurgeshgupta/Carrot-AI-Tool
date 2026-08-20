@@ -8,6 +8,7 @@ test('accepts the bounded chat and model message protocol', () => {
   assert.deepEqual(parseSidebarMessage({ type: 'refreshModels' }), { type: 'refreshModels' });
   assert.deepEqual(parseSidebarMessage({ type: 'addContext', kind: 'selection' }), { type: 'addContext', kind: 'selection' });
   assert.deepEqual(parseSidebarMessage({ type: 'setWebSearch', enabled: false }), { type: 'setWebSearch', enabled: false });
+  assert.deepEqual(parseSidebarMessage({ type: 'setMode', mode: 'agent' }), { type: 'setMode', mode: 'agent' });
 });
 
 test('does not provide Webview filesystem or secret-reading operations', () => {
@@ -22,4 +23,5 @@ test('rejects malformed values and non-http external links', () => {
   assert.equal(parseSidebarMessage({ type: 'toggleLocalOnly', enabled: 'yes' }), undefined);
   assert.equal(parseSidebarMessage({ type: 'sendMessage', prompt: 'hello', mode: 'unsafe', webSearch: true }), undefined);
   assert.equal(parseSidebarMessage({ type: 'addContext', kind: '../../secret' }), undefined);
+  assert.equal(parseSidebarMessage({ type: 'setMode', mode: 'unsafe' }), undefined);
 });
