@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg18
+    container_name: carrot-ai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-1234}
+      POSTGRES_DB: ${POSTGRES_DB:-carrot_ai}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - carrot_ai_postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: carrot-ai-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - carrot_ai_redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  pg-export:
+    image: pgvector/pgvector:0.8.6-pg18
+    profiles: ["migration"]
+    environment:
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-1234}
+      PGDATABASE: ${POSTGRES_DB:-carrot_ai}
+      SOURCE_POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+    volumes:
+      - carrot_ai_pg_migration:/migration
+    command:
+      - sh
+      - -c
+      - pg_dump --host=host.docker.internal --port=$${SOURCE_POSTGRES_PORT} --format=custom --file=/migration/carrot-ai.dump && pg_restore --list /migration/carrot-ai.dump >/migration/carrot-ai.list
+
+  pg-import:
+    image: pgvector/pgvector:0.8.6-pg18
+    profiles: ["migration"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-1234}
+      PGDATABASE: ${POSTGRES_DB:-carrot_ai}
+    volumes:
+      - carrot_ai_pg_migration:/migration:ro
+    command:
+      - sh
+      - -c
+      - psql --set=ON_ERROR_STOP=1 --command='CREATE EXTENSION IF NOT EXISTS vector' && pg_restore --exit-on-error --no-owner --no-privileges --dbname=$${PGDATABASE} /migration/carrot-ai.dump
+
+volumes:
+  carrot_ai_postgres_data:
+  carrot_ai_redis_data:
+  carrot_ai_pg_migration:

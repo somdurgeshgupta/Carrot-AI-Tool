@@ -1,14 +1,14 @@
 (() => {
   'use strict';
   const vscode = acquireVsCodeApi();
-  const ids = ['errorBanner','errorText','retry','conversationView','conversation','historyView','historyBack','history','composerArea','prompt','modelButton','composerStatus','composerModel','send','modelPicker','modelClose','modelList','agentActivity','changedFiles','workingState','workingLabel','historyButton','moreButton','headerMenu','localOnlyToggle','localOnlyState','toolsButton','toolsMenu','webSearchToggle','webSearchState','searchBadge','askMode','agentMode','contextChips'];
+  const ids = ['errorBanner','errorText','retry','conversationView','conversation','historyView','historyBack','history','composerArea','prompt','modelButton','composerStatus','composerModel','send','modelPicker','modelClose','modelList','agentActivity','changedFiles','workingState','workingLabel','newChatButton','historyButton','moreButton','headerMenu','localOnlyToggle','localOnlyState','toolsButton','toolsMenu','webSearchToggle','webSearchState','searchBadge','askMode','agentMode','contextChips'];
   const el = Object.fromEntries(ids.map(id => [id, document.getElementById(id)]));
   let state = { authenticated:false, busy:false, models:[], sessions:[], localOnly:true, mode:'ask', webSearch:false, contexts:[] };
   let streamingText = '', streamingContent, stickToBottom = true, activeView = 'conversation', agentActive = false;
   const post = (type, data={}) => vscode.postMessage({type, ...data});
   function resetConversation(){streamingText='';streamingContent=undefined;el.conversation.replaceChildren();el.agentActivity.replaceChildren();el.agentActivity.hidden=true;el.changedFiles.replaceChildren();el.changedFiles.hidden=true;el.errorBanner.hidden=true;el.errorBanner.classList.remove('notice');showView('conversation');}
   window.addEventListener('message',event=>{if(event.data?.type==='conversationReset')resetConversation();});
-  document.addEventListener('click',event=>{if(event.target===el.newChatButton)post('newChat');});
+  el.newChatButton.addEventListener('click',()=>post('newChat'));
   const node = (tag, text, className) => { const n=document.createElement(tag); if(className)n.className=className; if(text!==undefined)n.textContent=text; return n; };
 
   function chatModels(){ return state.models.filter(m=>m.type==='chat'&&m.available&&(!state.localOnly||m.location==='local')); }

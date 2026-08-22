@@ -1,10 +1,19 @@
 import { Component, OnInit, ViewChild, ElementRef, ChangeDetectorRef, NgZone } from '@angular/core';
 import { Router } from '@angular/router';
 import { marked } from 'marked';
-import { ApiService, AIModel, HealthCheckResponse, ChatMessage } from '../../core/services/api.service';
+import {
+  ApiService,
+  AIModel,
+  HealthCheckResponse,
+  ChatMessage,
+} from '../../core/services/api.service';
 import { AuthService, UserProfile } from '../../core/services/auth.service';
 import { SessionsService, ChatSession } from '../../core/services/sessions.service';
-import { RagService, UserDocumentSummary } from '../../core/services/rag.service';
+import {
+  IngestionJobResponse,
+  RagService,
+  UserDocumentSummary,
+} from '../../core/services/rag.service';
 
 marked.use({
   gfm: true,
@@ -12,13 +21,10 @@ marked.use({
   renderer: {
     code({ text, lang }: { text: string; lang?: string }) {
       const language = (lang || 'code').trim();
-      const escapedCode = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+      const escapedCode = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       return `<div class="code-block-wrapper"><div class="code-block-header"><span class="code-lang-label">${language.toUpperCase()}</span><div class="code-header-actions"><button class="code-action-btn btn-code-preview" data-preview-code="${encodeURIComponent(text)}" data-lang="${language}" title="Preview in right panel">👁️ Preview</button><button class="code-action-btn btn-code-download" data-download-code="${encodeURIComponent(text)}" data-lang="${language}" title="Download file">📥 Download</button><button class="code-copy-btn" data-code="${encodeURIComponent(text)}" title="Copy code snippet">📋</button></div></div><pre><code class="language-${language}">${escapedCode}</code></pre></div>`;
-    }
-  }
+    },
+  },
 });
 
 export interface AttachedFile {
@@ -34,7 +40,7 @@ export interface AttachedFile {
   selector: 'app-chat',
   templateUrl: './chat.component.html',
   styleUrls: ['./chat.component.css'],
-  standalone: false
+  standalone: false,
 })
 export class ChatComponent implements OnInit {
   @ViewChild('scrollContainer') private scrollContainer!: ElementRef;
@@ -86,12 +92,17 @@ export class ChatComponent implements OnInit {
   // ── RAG State ──────────────────────────────────────────────
   ragDocuments: UserDocumentSummary[] = [];
   isUploadingRag: boolean = false;
-  isDeletingRag: string | null = null;   // filename currently being deleted
+  isIndexingWebsite: boolean = false;
+  knowledgeWebsiteUrl: string = '';
+  isDeletingRag: string | null = null; // filename currently being deleted
   ragUploadError: string = '';
   ragUploadSuccess: string = '';
 
   // Track active background streams per session so queries never disappear when switching pages
-  activeSessionStreams = new Map<string, { assistantMessage: ChatMessage; fullText: string; isGenerating: boolean }>();
+  activeSessionStreams = new Map<
+    string,
+    { assistantMessage: ChatMessage; fullText: string; isGenerating: boolean }
+  >();
 
   constructor(
     private apiService: ApiService,
@@ -100,7 +111,7 @@ export class ChatComponent implements OnInit {
     private ragService: RagService,
     private router: Router,
     private cdr: ChangeDetectorRef,
-    private ngZone: NgZone
+    private ngZone: NgZone,
   ) {}
 
   ngOnInit(): void {
@@ -121,29 +132,35 @@ export class ChatComponent implements OnInit {
   }
 
   getDefaultModelId(availableModels?: AIModel[]): string {
-    const models = availableModels || [...this.localModels, ...this.cloudModels].filter(m => m.available);
+    const models =
+      availableModels || [...this.localModels, ...this.cloudModels].filter((m) => m.available);
     if (!models || models.length === 0) {
       return 'auto';
     }
 
     if (typeof localStorage !== 'undefined') {
       const pref = localStorage.getItem('carrot_preferred_model');
-      if (pref && !pref.includes('llama') && models.some(m => m.id === pref)) {
+      if (pref && !pref.includes('llama') && models.some((m) => m.id === pref)) {
         return pref;
       }
     }
 
-    if (this.configuredDefaultModelId !== 'auto' && models.some(m => m.id === this.configuredDefaultModelId)) {
+    if (
+      this.configuredDefaultModelId !== 'auto' &&
+      models.some((m) => m.id === this.configuredDefaultModelId)
+    ) {
       return this.configuredDefaultModelId;
     }
 
-    const qwen3 = models.find(m => m.id.toLowerCase().includes('qwen3') || m.id.toLowerCase().includes('qwen-3'));
+    const qwen3 = models.find(
+      (m) => m.id.toLowerCase().includes('qwen3') || m.id.toLowerCase().includes('qwen-3'),
+    );
     if (qwen3) return qwen3.id;
 
-    const anyQwen = models.find(m => m.id.toLowerCase().includes('qwen'));
+    const anyQwen = models.find((m) => m.id.toLowerCase().includes('qwen'));
     if (anyQwen) return anyQwen.id;
 
-    const firstLocal = models.find(m => m.isLocal);
+    const firstLocal = models.find((m) => m.isLocal);
     if (firstLocal) return firstLocal.id;
 
     return models[0].id;
@@ -160,7 +177,7 @@ export class ChatComponent implements OnInit {
         }
         this.cdr.detectChanges();
       },
-      error: (err) => console.error('Failed to load sessions', err)
+      error: (err) => console.error('Failed to load sessions', err),
     });
   }
 
@@ -171,7 +188,7 @@ export class ChatComponent implements OnInit {
 
     // Prevent duplicate empty sessions: If current active session has no messages, reuse it
     if (this.messages.length === 0 && this.activeSessionId) {
-      const active = this.sessions.find(s => s.id === this.activeSessionId);
+      const active = this.sessions.find((s) => s.id === this.activeSessionId);
       if (active && (active.title === 'New Conversation' || !active.title)) {
         this.currentStreamText = '';
         if (typeof window !== 'undefined' && window.innerWidth < 768) {
@@ -193,7 +210,7 @@ export class ChatComponent implements OnInit {
         }
         this.cdr.detectChanges();
       },
-      error: (err) => console.error('Failed to create session', err)
+      error: (err) => console.error('Failed to create session', err),
     });
   }
 
@@ -213,13 +230,17 @@ export class ChatComponent implements OnInit {
       next: (session) => {
         if (session.modelId) {
           if (session.modelId.includes('llama')) {
-            const savedPref = typeof localStorage !== 'undefined' ? localStorage.getItem('carrot_preferred_model') : null;
+            const savedPref =
+              typeof localStorage !== 'undefined'
+                ? localStorage.getItem('carrot_preferred_model')
+                : null;
             this.selectedModelId = savedPref || this.getDefaultModelId();
           } else {
             const loadedModels = [...this.localModels, ...this.cloudModels];
-            this.selectedModelId = loadedModels.length === 0 || loadedModels.some(m => m.id === session.modelId)
-              ? session.modelId
-              : this.getDefaultModelId();
+            this.selectedModelId =
+              loadedModels.length === 0 || loadedModels.some((m) => m.id === session.modelId)
+                ? session.modelId
+                : this.getDefaultModelId();
           }
           this.updateModelType();
         }
@@ -227,7 +248,7 @@ export class ChatComponent implements OnInit {
           role: m.role,
           content: m.content,
           modelId: (m as any).modelId,
-          isLocal: (m as any).modelId ? (m as any).modelId.startsWith('local') : undefined
+          isLocal: (m as any).modelId ? (m as any).modelId.startsWith('local') : undefined,
         }));
 
         // Check if there is an active background stream for this session
@@ -247,7 +268,7 @@ export class ChatComponent implements OnInit {
         this.scrollToBottom();
         this.cdr.detectChanges();
       },
-      error: (err) => console.error('Failed to load session details', err)
+      error: (err) => console.error('Failed to load session details', err),
     });
   }
 
@@ -292,7 +313,7 @@ export class ChatComponent implements OnInit {
       error: (err) => {
         console.error('Failed to delete session', err);
         this.showDeleteConfirmModal = false;
-      }
+      },
     });
   }
 
@@ -314,17 +335,17 @@ export class ChatComponent implements OnInit {
         this.health = res;
         this.cdr.detectChanges();
       },
-      error: (err) => console.error('Health check failed', err)
+      error: (err) => console.error('Health check failed', err),
     });
 
     this.apiService.getModels(this.localServerUrl).subscribe({
       next: (data) => {
-        this.localModels = data.local.filter(m => m.type === 'chat');
-        this.cloudModels = data.cloud.filter(m => m.type === 'chat');
+        this.localModels = data.local.filter((m) => m.type === 'chat');
+        this.cloudModels = data.cloud.filter((m) => m.type === 'chat');
         this.configuredDefaultModelId = data.defaultModelId || 'auto';
 
-        const allAvailable = [...this.localModels, ...this.cloudModels].filter(m => m.available);
-        if (!allAvailable.some(m => m.id === this.selectedModelId)) {
+        const allAvailable = [...this.localModels, ...this.cloudModels].filter((m) => m.available);
+        if (!allAvailable.some((m) => m.id === this.selectedModelId)) {
           this.selectedModelId = this.getDefaultModelId(allAvailable);
         }
         this.updateModelType();
@@ -344,7 +365,7 @@ export class ChatComponent implements OnInit {
           this.isRefreshing = false;
           this.cdr.detectChanges();
         }, delay);
-      }
+      },
     });
   }
 
@@ -359,16 +380,25 @@ export class ChatComponent implements OnInit {
   selectedModelIsVision: boolean = false;
 
   updateModelType(): void {
-    const foundLocal = this.localModels.find(m => m.id === this.selectedModelId);
+    const foundLocal = this.localModels.find((m) => m.id === this.selectedModelId);
     this.selectedModelIsLocal = Boolean(foundLocal);
 
     const lowerId = (this.selectedModelId || '').toLowerCase();
-    const isCloud = !this.selectedModelIsLocal || lowerId.includes('gemini') || lowerId.includes('openai') || lowerId.includes('groq');
+    const isCloud =
+      !this.selectedModelIsLocal ||
+      lowerId.includes('gemini') ||
+      lowerId.includes('openai') ||
+      lowerId.includes('groq');
     this.selectedModelIsVision = isCloud || lowerId.includes('llava') || lowerId.includes('vision');
   }
 
   get hasAttachedImages(): boolean {
-    return this.attachedFiles.some(f => f.dataUrl && (f.dataUrl.startsWith('data:image/') || ['png','jpg','jpeg','webp','gif'].includes(f.extension)));
+    return this.attachedFiles.some(
+      (f) =>
+        f.dataUrl &&
+        (f.dataUrl.startsWith('data:image/') ||
+          ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(f.extension)),
+    );
   }
 
   // ── RAG Mode: 'auto' (smart relevance filter), 'always', or 'off' (default: 'off')
@@ -409,7 +439,8 @@ export class ChatComponent implements OnInit {
     if (type === 'pdf') return '📄';
     if (type === 'md' || type === 'markdown') return '📝';
     if (['csv', 'tsv', 'json', 'jsonl'].includes(type)) return '📊';
-    if (['py', 'js', 'ts', 'html', 'css', 'sql', 'java', 'c', 'cpp', 'sh'].includes(type)) return '💻';
+    if (['py', 'js', 'ts', 'html', 'css', 'sql', 'java', 'c', 'cpp', 'sh'].includes(type))
+      return '💻';
     return '📃';
   }
 
@@ -430,7 +461,7 @@ export class ChatComponent implements OnInit {
   }
 
   selectAllDocs(): void {
-    this.ragDocuments.forEach(d => this.selectedDocNames.add(d.fileName));
+    this.ragDocuments.forEach((d) => this.selectedDocNames.add(d.fileName));
     this.cdr.detectChanges();
   }
 
@@ -465,7 +496,8 @@ export class ChatComponent implements OnInit {
 
   exportChat(format: 'md' | 'json' | 'txt'): void {
     if (this.messages.length === 0) return;
-    const sessionTitle = this.sessions.find(s => s.id === this.activeSessionId)?.title || 'chat-transcript';
+    const sessionTitle =
+      this.sessions.find((s) => s.id === this.activeSessionId)?.title || 'chat-transcript';
     const safeTitle = sessionTitle.toLowerCase().replace(/[^a-z0-9]/g, '-');
 
     let fileContent = '';
@@ -483,7 +515,11 @@ export class ChatComponent implements OnInit {
     } else if (format === 'json') {
       mimeType = 'application/json';
       fileExt = 'json';
-      fileContent = JSON.stringify({ title: sessionTitle, exportedAt: new Date(), messages: this.messages }, null, 2);
+      fileContent = JSON.stringify(
+        { title: sessionTitle, exportedAt: new Date(), messages: this.messages },
+        null,
+        2,
+      );
     } else {
       fileContent = `${sessionTitle.toUpperCase()}\n=====================\n\n`;
       this.messages.forEach((msg) => {
@@ -522,9 +558,12 @@ export class ChatComponent implements OnInit {
       return;
     }
 
-    const SpeechRecognitionClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognitionClass =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognitionClass) {
-      alert('Speech Recognition is not supported by your browser. Please use Chrome, Edge, or Safari.');
+      alert(
+        'Speech Recognition is not supported by your browser. Please use Chrome, Edge, or Safari.',
+      );
       return;
     }
 
@@ -574,7 +613,9 @@ export class ChatComponent implements OnInit {
             return;
           }
           if (err.error === 'not-allowed') {
-            alert('Microphone permission denied. Please allow microphone access in browser settings.');
+            alert(
+              'Microphone permission denied. Please allow microphone access in browser settings.',
+            );
             this.stopVoiceInput();
           }
           this.cdr.detectChanges();
@@ -629,11 +670,11 @@ export class ChatComponent implements OnInit {
       next: (docs) => {
         this.ragDocuments = docs;
         if (this.selectedDocNames.size === 0) {
-          docs.forEach(d => this.selectedDocNames.add(d.fileName));
+          docs.forEach((d) => this.selectedDocNames.add(d.fileName));
         }
         this.cdr.detectChanges();
       },
-      error: (err) => console.error('Failed to load RAG documents', err)
+      error: (err) => console.error('Failed to load RAG documents', err),
     });
   }
 
@@ -654,21 +695,104 @@ export class ChatComponent implements OnInit {
 
     this.ragService.uploadDocument(file).subscribe({
       next: (res) => {
+        if ('status' in res) {
+          this.ragUploadSuccess = 'Document queued for indexing (0%)';
+          if (this.ragFileInput) this.ragFileInput.nativeElement.value = '';
+          this.pollIngestionJob(res.id, 'file');
+          this.cdr.detectChanges();
+          return;
+        }
         this.ragUploadSuccess = `✅ "${res.fileName}" indexed into ${res.chunkCount} chunks`;
+        this.selectedDocNames.add(res.fileName);
         this.isUploadingRag = false;
         this.loadRagDocuments();
         // Reset file input so same file can be re-uploaded
         if (this.ragFileInput) {
           this.ragFileInput.nativeElement.value = '';
         }
-        setTimeout(() => { this.ragUploadSuccess = ''; this.cdr.detectChanges(); }, 4000);
+        setTimeout(() => {
+          this.ragUploadSuccess = '';
+          this.cdr.detectChanges();
+        }, 4000);
         this.cdr.detectChanges();
       },
       error: (err) => {
         this.ragUploadError = `❌ Upload failed: ${err.error?.message || err.message || 'Unknown error'}`;
         this.isUploadingRag = false;
         this.cdr.detectChanges();
-      }
+      },
+    });
+  }
+
+  indexKnowledgeWebsite(): void {
+    const url = this.knowledgeWebsiteUrl.trim();
+    if (!url || this.isIndexingWebsite) return;
+
+    this.ragUploadError = '';
+    this.ragUploadSuccess = '';
+    this.isIndexingWebsite = true;
+    this.ragService.indexWebsite(url).subscribe({
+      next: (res) => {
+        if ('status' in res) {
+          this.ragUploadSuccess = 'Website queued for indexing (0%)';
+          this.knowledgeWebsiteUrl = '';
+          this.pollIngestionJob(res.id, 'website');
+          this.cdr.detectChanges();
+          return;
+        }
+        this.ragUploadSuccess = res.reused
+          ? `Shared public knowledge reused (${res.chunkCount} chunks; no re-embedding needed)`
+          : `Website indexed into ${res.chunkCount} knowledge chunks`;
+        this.selectedDocNames.add(res.fileName);
+        this.knowledgeWebsiteUrl = '';
+        this.isIndexingWebsite = false;
+        this.loadRagDocuments();
+        setTimeout(() => {
+          this.ragUploadSuccess = '';
+          this.cdr.detectChanges();
+        }, 4000);
+        this.cdr.detectChanges();
+      },
+      error: (err) => {
+        this.ragUploadError = `Website indexing failed: ${err.error?.message || err.message || 'Unknown error'}`;
+        this.isIndexingWebsite = false;
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  private pollIngestionJob(jobId: string, kind: 'file' | 'website'): void {
+    this.ragService.getIngestionJob(jobId).subscribe({
+      next: (job: IngestionJobResponse) => {
+        if (job.status === 'COMPLETED' && job.result) {
+          const result = job.result;
+          this.ragUploadSuccess = result.reused
+            ? `Reused ${result.chunkCount} existing knowledge chunks`
+            : `${kind === 'file' ? 'Document' : 'Website'} indexed into ${result.chunkCount} chunks`;
+          this.selectedDocNames.add(result.fileName);
+          this.isUploadingRag = false;
+          this.isIndexingWebsite = false;
+          this.loadRagDocuments();
+          setTimeout(() => {
+            this.ragUploadSuccess = '';
+            this.cdr.detectChanges();
+          }, 4000);
+        } else if (job.status === 'FAILED' || job.status === 'CANCELLED') {
+          this.ragUploadError = job.errorMessage || `Ingestion ${job.status.toLowerCase()}`;
+          this.isUploadingRag = false;
+          this.isIndexingWebsite = false;
+        } else {
+          this.ragUploadSuccess = `${kind === 'file' ? 'Document' : 'Website'} ${job.status.toLowerCase()} (${job.progress}%)`;
+          setTimeout(() => this.pollIngestionJob(jobId, kind), 1000);
+        }
+        this.cdr.detectChanges();
+      },
+      error: (err) => {
+        this.ragUploadError = `Could not read ingestion progress: ${err.error?.message || err.message}`;
+        this.isUploadingRag = false;
+        this.isIndexingWebsite = false;
+        this.cdr.detectChanges();
+      },
     });
   }
 
@@ -686,7 +810,7 @@ export class ChatComponent implements OnInit {
 
     this.ragService.deleteDocument(targetFileName).subscribe({
       next: () => {
-        this.ragDocuments = this.ragDocuments.filter(d => d.fileName !== targetFileName);
+        this.ragDocuments = this.ragDocuments.filter((d) => d.fileName !== targetFileName);
         this.isDeletingRag = null;
         this.showDeleteRagDocModal = false;
         this.ragDocToDelete = null;
@@ -694,12 +818,14 @@ export class ChatComponent implements OnInit {
       },
       error: (err) => {
         console.error('Failed to delete RAG document', err);
-        alert(`❌ Deletion failed: ${err.error?.message || err.message || 'Server connection lost. Please try again.'}`);
+        alert(
+          `❌ Deletion failed: ${err.error?.message || err.message || 'Server connection lost. Please try again.'}`,
+        );
         this.isDeletingRag = null;
         this.showDeleteRagDocModal = false;
         this.ragDocToDelete = null;
         this.cdr.detectChanges();
-      }
+      },
     });
   }
 
@@ -712,7 +838,7 @@ export class ChatComponent implements OnInit {
 
   getActiveModelName(): string {
     const all = [...this.localModels, ...this.cloudModels];
-    const match = all.find(m => m.id === this.selectedModelId);
+    const match = all.find((m) => m.id === this.selectedModelId);
     return match ? match.name : this.selectedModelId;
   }
 
@@ -727,10 +853,16 @@ export class ChatComponent implements OnInit {
 
   private formatModelId(id: string): string {
     if (!id) return 'AI Assistant';
-    const clean = id.replace(/^(local|groq|gemini|openai|deepseek|kimi):/, '').replace(/:latest$/, '');
+    const clean = id
+      .replace(/^(local|groq|gemini|openai|deepseek|kimi):/, '')
+      .replace(/:latest$/, '');
     const parts = clean.split(':');
-    const baseName = parts[0].split(/[\-_]/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-    const tag = parts[1] && parts[1].toLowerCase() !== 'local' ? ` (${parts[1].toUpperCase()})` : '';
+    const baseName = parts[0]
+      .split(/[\-_]/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' ');
+    const tag =
+      parts[1] && parts[1].toLowerCase() !== 'local' ? ` (${parts[1].toUpperCase()})` : '';
     return `${baseName}${tag}`;
   }
 
@@ -787,9 +919,11 @@ export class ChatComponent implements OnInit {
     return new Promise((resolve) => {
       try {
         if (typeof window !== 'undefined' && (window as any).Tesseract) {
-          (window as any).Tesseract.recognize(dataUrl, 'eng').then((result: any) => {
-            resolve((result?.data?.text || '').trim());
-          }).catch(() => resolve(''));
+          (window as any).Tesseract.recognize(dataUrl, 'eng')
+            .then((result: any) => {
+              resolve((result?.data?.text || '').trim());
+            })
+            .catch(() => resolve(''));
         } else if (typeof document !== 'undefined') {
           const existingScript = document.querySelector('script[src*="tesseract"]');
           if (existingScript) {
@@ -798,8 +932,12 @@ export class ChatComponent implements OnInit {
                 try {
                   const res = await (window as any).Tesseract.recognize(dataUrl, 'eng');
                   resolve((res?.data?.text || '').trim());
-                } catch { resolve(''); }
-              } else { resolve(''); }
+                } catch {
+                  resolve('');
+                }
+              } else {
+                resolve('');
+              }
             }, 1000);
             return;
           }
@@ -807,9 +945,11 @@ export class ChatComponent implements OnInit {
           script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
           script.onload = () => {
             if ((window as any).Tesseract) {
-              (window as any).Tesseract.recognize(dataUrl, 'eng').then((result: any) => {
-                resolve((result?.data?.text || '').trim());
-              }).catch(() => resolve(''));
+              (window as any).Tesseract.recognize(dataUrl, 'eng')
+                .then((result: any) => {
+                  resolve((result?.data?.text || '').trim());
+                })
+                .catch(() => resolve(''));
             } else {
               resolve('');
             }
@@ -833,7 +973,11 @@ export class ChatComponent implements OnInit {
       const extension = file.name.split('.').pop()?.toLowerCase() || '';
       const reader = new FileReader();
 
-      if (['pdf', 'png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(extension) || file.type.includes('pdf') || file.type.startsWith('image/')) {
+      if (
+        ['pdf', 'png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(extension) ||
+        file.type.includes('pdf') ||
+        file.type.startsWith('image/')
+      ) {
         reader.onload = (e) => {
           const dataUrl = (e.target?.result as string) || '';
           this.apiService.extractDocumentText(file.name, dataUrl).subscribe({
@@ -845,7 +989,7 @@ export class ChatComponent implements OnInit {
                   type: file.type || 'application/octet-stream',
                   extension,
                   content: res.text || `[Document/Image: ${file.name}]`,
-                  dataUrl
+                  dataUrl,
                 });
                 this.cdr.detectChanges();
               });
@@ -859,16 +1003,39 @@ export class ChatComponent implements OnInit {
                   size: file.size,
                   type: file.type || 'application/octet-stream',
                   extension,
-                  content: ocrText ? `[Extracted Image Text (OCR)]:\n${ocrText}` : `[Document/Image: ${file.name}]`,
-                  dataUrl
+                  content: ocrText
+                    ? `[Extracted Image Text (OCR)]:\n${ocrText}`
+                    : `[Document/Image: ${file.name}]`,
+                  dataUrl,
                 });
                 this.cdr.detectChanges();
               });
-            }
+            },
           });
         };
         reader.readAsDataURL(file);
-      } else if (file.type.startsWith('text/') || ['json', 'js', 'ts', 'py', 'md', 'html', 'css', 'sql', 'c', 'cpp', 'java', 'csv', 'yaml', 'yml', 'xml', 'txt', 'sh'].includes(extension)) {
+      } else if (
+        file.type.startsWith('text/') ||
+        [
+          'json',
+          'js',
+          'ts',
+          'py',
+          'md',
+          'html',
+          'css',
+          'sql',
+          'c',
+          'cpp',
+          'java',
+          'csv',
+          'yaml',
+          'yml',
+          'xml',
+          'txt',
+          'sh',
+        ].includes(extension)
+      ) {
         reader.onload = (e) => {
           const textContent = (e.target?.result as string) || '';
           this.ngZone.run(() => {
@@ -877,7 +1044,7 @@ export class ChatComponent implements OnInit {
               size: file.size,
               type: file.type || 'text/plain',
               extension,
-              content: textContent
+              content: textContent,
             });
             this.cdr.detectChanges();
           });
@@ -894,7 +1061,7 @@ export class ChatComponent implements OnInit {
               type: file.type || 'application/octet-stream',
               extension,
               content: ocrText ? `[Extracted Image Text (OCR)]:\n${ocrText}` : dataUrl,
-              dataUrl
+              dataUrl,
             });
             this.cdr.detectChanges();
           });
@@ -924,7 +1091,7 @@ export class ChatComponent implements OnInit {
     this.previewFile = {
       name,
       content,
-      language: language || (name.split('.').pop() || 'code')
+      language: language || name.split('.').pop() || 'code',
     };
     this.cdr.detectChanges();
   }
@@ -973,14 +1140,17 @@ export class ChatComponent implements OnInit {
       event.stopPropagation();
       const rawCode = decodeURIComponent(copyBtn.getAttribute('data-code') || '');
       if (rawCode) {
-        navigator.clipboard.writeText(rawCode).then(() => {
-          const originalText = copyBtn.innerHTML;
-          copyBtn.innerHTML = '✅';
-          setTimeout(() => {
-            copyBtn.innerHTML = originalText;
-            this.cdr.detectChanges();
-          }, 2000);
-        }).catch(err => console.error('Failed to copy code', err));
+        navigator.clipboard
+          .writeText(rawCode)
+          .then(() => {
+            const originalText = copyBtn.innerHTML;
+            copyBtn.innerHTML = '✅';
+            setTimeout(() => {
+              copyBtn.innerHTML = originalText;
+              this.cdr.detectChanges();
+            }, 2000);
+          })
+          .catch((err) => console.error('Failed to copy code', err));
       }
       return;
     }
@@ -993,7 +1163,14 @@ export class ChatComponent implements OnInit {
       const rawCode = decodeURIComponent(previewBtn.getAttribute('data-preview-code') || '');
       const lang = previewBtn.getAttribute('data-lang') || 'code';
       if (rawCode) {
-        const ext = lang === 'typescript' ? 'ts' : (lang === 'javascript' ? 'js' : (lang === 'python' ? 'py' : lang));
+        const ext =
+          lang === 'typescript'
+            ? 'ts'
+            : lang === 'javascript'
+              ? 'js'
+              : lang === 'python'
+                ? 'py'
+                : lang;
         this.openPreview(`document.${ext}`, rawCode, lang);
       }
       return;
@@ -1007,7 +1184,16 @@ export class ChatComponent implements OnInit {
       const rawCode = decodeURIComponent(downloadBtn.getAttribute('data-download-code') || '');
       const lang = downloadBtn.getAttribute('data-lang') || 'code';
       if (rawCode) {
-        const ext = lang === 'typescript' ? 'ts' : (lang === 'javascript' ? 'js' : (lang === 'python' ? 'py' : (lang === 'html' ? 'html' : 'txt')));
+        const ext =
+          lang === 'typescript'
+            ? 'ts'
+            : lang === 'javascript'
+              ? 'js'
+              : lang === 'python'
+                ? 'py'
+                : lang === 'html'
+                  ? 'html'
+                  : 'txt';
         this.downloadFile(`code-export.${ext}`, rawCode);
       }
       return;
@@ -1019,16 +1205,19 @@ export class ChatComponent implements OnInit {
   copyMessageText(content: string, index: number): void {
     if (!content) return;
     const cleanText = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-    navigator.clipboard.writeText(cleanText).then(() => {
-      this.copiedMsgIndex = index;
-      this.cdr.detectChanges();
-      setTimeout(() => {
-        if (this.copiedMsgIndex === index) {
-          this.copiedMsgIndex = null;
-          this.cdr.detectChanges();
-        }
-      }, 2000);
-    }).catch(err => console.error('Failed to copy text', err));
+    navigator.clipboard
+      .writeText(cleanText)
+      .then(() => {
+        this.copiedMsgIndex = index;
+        this.cdr.detectChanges();
+        setTimeout(() => {
+          if (this.copiedMsgIndex === index) {
+            this.copiedMsgIndex = null;
+            this.cdr.detectChanges();
+          }
+        }, 2000);
+      })
+      .catch((err) => console.error('Failed to copy text', err));
   }
 
   // ── Send Message ───────────────────────────────────────────
@@ -1042,7 +1231,7 @@ export class ChatComponent implements OnInit {
           this.sessions.unshift(session);
           this.activeSessionId = session.id;
           await this.executeSendMessage();
-        }
+        },
       });
       return;
     }
@@ -1073,7 +1262,7 @@ export class ChatComponent implements OnInit {
                     type: blob.type || 'image/png',
                     extension: 'png',
                     content: res.text || `[Screenshot: ${fileName}]`,
-                    dataUrl
+                    dataUrl,
                   });
                   this.cdr.detectChanges();
                 });
@@ -1087,11 +1276,11 @@ export class ChatComponent implements OnInit {
                     type: blob.type || 'image/png',
                     extension: 'png',
                     content: ocrText ? `[Extracted Screenshot Text (OCR)]:\n${ocrText}` : dataUrl,
-                    dataUrl
+                    dataUrl,
                   });
                   this.cdr.detectChanges();
                 });
-              }
+              },
             });
           };
           reader.readAsDataURL(blob);
@@ -1119,19 +1308,19 @@ export class ChatComponent implements OnInit {
     this.userInput = '';
     const currentSessionId = this.activeSessionId;
 
-    const attachedSnapshots = this.attachedFiles.map(f => ({
+    const attachedSnapshots = this.attachedFiles.map((f) => ({
       name: f.name,
       extension: f.extension,
       size: f.size,
-      dataUrl: f.dataUrl
+      dataUrl: f.dataUrl,
     }));
 
-    const fileListToSend = this.attachedFiles.map(f => ({
+    const fileListToSend = this.attachedFiles.map((f) => ({
       name: f.name,
       extension: f.extension,
       type: f.type,
       content: f.content,
-      dataUrl: f.dataUrl
+      dataUrl: f.dataUrl,
     }));
 
     let modelUserText = rawUserPrompt;
@@ -1147,13 +1336,17 @@ export class ChatComponent implements OnInit {
         }
         fileContexts += `\n[Extracted Text from File "${file.name}"]:\n${textSample}\n`;
       });
-      modelUserText = rawUserPrompt ? `${fileContexts}\n[User Question]: ${rawUserPrompt}` : `${fileContexts}\nPlease analyze the document text above and answer the question.`;
+      modelUserText = rawUserPrompt
+        ? `${fileContexts}\n[User Question]: ${rawUserPrompt}`
+        : `${fileContexts}\nPlease analyze the document text above and answer the question.`;
       this.attachedFiles = [];
     }
 
     const activeSession = this.sessions.find((s) => s.id === this.activeSessionId);
     if (activeSession && (activeSession.title === 'New Conversation' || !activeSession.title)) {
-      const titleText = rawUserPrompt || (attachedSnapshots[0]?.name ? `Attached: ${attachedSnapshots[0].name}` : 'File Analysis');
+      const titleText =
+        rawUserPrompt ||
+        (attachedSnapshots[0]?.name ? `Attached: ${attachedSnapshots[0].name}` : 'File Analysis');
       activeSession.title = titleText.slice(0, 35) + (titleText.length > 35 ? '...' : '');
     }
 
@@ -1164,8 +1357,10 @@ export class ChatComponent implements OnInit {
     // Push clean user message to UI (without technical template wrappers)
     const displayMessage: ChatMessage = {
       role: 'user',
-      content: rawUserPrompt || (attachedSnapshots.length > 0 ? `Attached ${attachedSnapshots.length} file(s)` : ''),
-      attachments: attachedSnapshots.length > 0 ? attachedSnapshots : undefined
+      content:
+        rawUserPrompt ||
+        (attachedSnapshots.length > 0 ? `Attached ${attachedSnapshots.length} file(s)` : ''),
+      attachments: attachedSnapshots.length > 0 ? attachedSnapshots : undefined,
     };
     this.messages.push(displayMessage);
     this.isUserScrolledUp = false;
@@ -1179,14 +1374,14 @@ export class ChatComponent implements OnInit {
       role: 'assistant',
       content: '',
       modelId: this.selectedModelId,
-      isLocal: this.selectedModelIsLocal
+      isLocal: this.selectedModelIsLocal,
     };
     this.messages.push(assistantMessage);
 
     const streamState = {
       assistantMessage,
       fullText: '',
-      isGenerating: true
+      isGenerating: true,
     };
 
     if (currentSessionId) {
@@ -1197,7 +1392,9 @@ export class ChatComponent implements OnInit {
     const useRag = this.ragActive && !!this.currentUser?.id;
 
     // Send payload to backend with modelUserText for current turn
-    const apiMessages = this.messages.slice(0, -2).map(m => ({ role: m.role, content: m.content }));
+    const apiMessages = this.messages
+      .slice(0, -2)
+      .map((m) => ({ role: m.role, content: m.content }));
     apiMessages.push({ role: 'user', content: modelUserText });
 
     const payload = {
@@ -1208,7 +1405,8 @@ export class ChatComponent implements OnInit {
       systemPrompt: this.systemPrompt,
       localServerUrl: this.localServerUrl,
       ragEnabled: useRag,
-      selectedDocNames: useRag && this.selectedDocNames.size > 0 ? Array.from(this.selectedDocNames) : undefined,
+      selectedDocNames:
+        useRag && this.selectedDocNames.size > 0 ? Array.from(this.selectedDocNames) : undefined,
       webSearchEnabled: this.webSearchEnabled,
       attachedFiles: fileListToSend.length > 0 ? fileListToSend : undefined,
       apiKeys: {
@@ -1216,8 +1414,8 @@ export class ChatComponent implements OnInit {
         deepseekApiKey: this.deepseekKey,
         kimiApiKey: this.kimiKey,
         geminiApiKey: this.geminiKey,
-        groqApiKey: this.groqKey
-      }
+        groqApiKey: this.groqKey,
+      },
     };
 
     await this.apiService.streamChat(
@@ -1244,7 +1442,7 @@ export class ChatComponent implements OnInit {
           this.cdr.detectChanges();
         }
       },
-      this.currentAbortController.signal
+      this.currentAbortController.signal,
     );
 
     streamState.isGenerating = false;

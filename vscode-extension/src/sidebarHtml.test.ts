@@ -65,3 +65,11 @@ test('dismisses menus outside and provides prompt copy/edit/resend actions', () 
   assert.match(script, /Resend prompt/);
   assert.match(script, /el\.prompt\.value=content/);
 });
+
+test('wires the new-chat button to the newChat sidebar message', () => {
+  const html = getSidebarHtml('nonce', 'vscode-webview:', resources);
+  const script = fs.readFileSync(path.resolve(__dirname, '..', 'media', 'sidebar.js'), 'utf8');
+  assert.match(html, /id="newChatButton"/);
+  assert.match(script, /['"]newChatButton['"]/);
+  assert.match(script, /el\.newChatButton\.addEventListener\('click',\(\)=>post\('newChat'\)\)/);
+});

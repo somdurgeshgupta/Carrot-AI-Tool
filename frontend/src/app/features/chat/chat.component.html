@@ -462,6 +462,26 @@
       </span>
     </div>
 
+    <div style="margin-top: 10px; display: flex; gap: 8px;">
+      <input
+        type="url"
+        [(ngModel)]="knowledgeWebsiteUrl"
+        (keyup.enter)="indexKnowledgeWebsite()"
+        placeholder="https://docs.example.com/guide"
+        aria-label="Public website URL to add to the knowledge base"
+        style="flex: 1; min-width: 0; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); background: #0f1117; color: #f8fafc;"
+      />
+      <button
+        class="btn-primary"
+        (click)="indexKnowledgeWebsite()"
+        [disabled]="!knowledgeWebsiteUrl.trim() || isIndexingWebsite">
+        {{ isIndexingWebsite ? 'Learning...' : 'Learn Website' }}
+      </button>
+    </div>
+    <small style="display: block; margin-top: 5px; color: #64748b;">
+      Adds readable content from one public page. Private/local network URLs are blocked.
+    </small>
+
     <!-- Upload Feedback -->
     <div class="rag-feedback success" style="margin-top: 8px;" *ngIf="ragUploadSuccess">{{ ragUploadSuccess }}</div>
     <div class="rag-feedback error" style="margin-top: 8px;" *ngIf="ragUploadError">{{ ragUploadError }}</div>

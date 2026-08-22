@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { ChatSession } from '../entities/chat-session.entity';
 import { ChatMessageEntity } from '../entities/chat-message.entity';
 import { User } from '../entities/user.entity';
+import { RedisCacheService } from '../cache/redis-cache.service';
 
 @Injectable()
 export class SessionsService {
@@ -14,6 +15,7 @@ export class SessionsService {
     private readonly messageRepository: Repository<ChatMessageEntity>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    private readonly cache: RedisCacheService,
   ) {}
 
   async getUserSessions(userId: string): Promise<ChatSession[]> {
@@ -52,6 +54,11 @@ export class SessionsService {
   }
 
   async getCrossConversationContext(userId: string, currentSessionId?: string): Promise<string> {
+    const version = await this.cache.getNumber(`memory:version:${userId}`);
+    const cacheKey = `memory:context:${userId}:${currentSessionId || 'none'}:${version}`;
+    const cached = await this.cache.getJson<string>(cacheKey);
+    if (cached !== undefined) return cached;
+
     const query = this.messageRepository.createQueryBuilder('message')
       .innerJoin('message.session', 'session')
       .innerJoin('session.user', 'user')
@@ -65,12 +72,14 @@ export class SessionsService {
     }
 
     const messages = await query.getMany();
-    return messages
+    const context = messages
       .reverse()
       .map((message) => message.content.trim())
       .filter(Boolean)
       .join('\n---\n')
       .slice(-12_000);
+    await this.cache.setJson(cacheKey, context, 300);
+    return context;
   }
 
   async createSession(userId: string, title?: string, modelId?: string): Promise<ChatSession> {
@@ -97,6 +106,7 @@ export class SessionsService {
   async deleteSession(userId: string, sessionId: string): Promise<{ success: boolean }> {
     const session = await this.getSessionWithMessages(userId, sessionId);
     await this.sessionRepository.remove(session);
+    await this.cache.increment(`memory:version:${userId}`);
     return { success: true };
   }
 
@@ -105,6 +115,7 @@ export class SessionsService {
     if (sessions.length > 0) {
       await this.sessionRepository.remove(sessions);
     }
+    await this.cache.increment(`memory:version:${userId}`);
     return { success: true, deletedCount: sessions.length };
   }
 
@@ -128,6 +139,7 @@ export class SessionsService {
     });
 
     const saved = await this.messageRepository.save(msg);
+    if (role === 'user') await this.cache.increment(`memory:version:${userId}`);
 
     
     // Auto update session timestamp

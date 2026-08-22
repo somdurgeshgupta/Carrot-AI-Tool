@@ -15,7 +15,11 @@ import { User } from './entities/user.entity';
 import { ChatSession } from './entities/chat-session.entity';
 import { ChatMessageEntity } from './entities/chat-message.entity';
 import { DocumentChunkEntity } from './entities/document-chunk.entity';
+import { KnowledgeSourceEntity } from './entities/knowledge-source.entity';
+import { UserKnowledgeSourceEntity } from './entities/user-knowledge-source.entity';
+import { IngestionJobEntity } from './entities/ingestion-job.entity';
 import { AgentModule } from './agent/agent.module';
+import { CacheModule } from './cache/cache.module';
 
 @Module({
   imports: [
@@ -34,13 +38,42 @@ import { AgentModule } from './agent/agent.module';
 
         return {
           type: 'postgres',
-          host: process.env.POSTGRES_HOST || configService.get<string>('POSTGRES_HOST') || 'localhost',
-          port: parseInt(process.env.POSTGRES_PORT || configService.get<string>('POSTGRES_PORT') || '5432', 10),
-          username: process.env.POSTGRES_USER || configService.get<string>('POSTGRES_USER') || 'postgres',
-          password: process.env.POSTGRES_PASSWORD || configService.get<string>('POSTGRES_PASSWORD') || '1234',
-          database: process.env.POSTGRES_DB || configService.get<string>('POSTGRES_DB') || 'carrot_ai',
-          entities: [User, ChatSession, ChatMessageEntity, DocumentChunkEntity],
-          synchronize: true,
+          host:
+            process.env.POSTGRES_HOST ||
+            configService.get<string>('POSTGRES_HOST') ||
+            'localhost',
+          port: parseInt(
+            process.env.POSTGRES_PORT ||
+              configService.get<string>('POSTGRES_PORT') ||
+              '5432',
+            10,
+          ),
+          username:
+            process.env.POSTGRES_USER ||
+            configService.get<string>('POSTGRES_USER') ||
+            'postgres',
+          password:
+            process.env.POSTGRES_PASSWORD ||
+            configService.get<string>('POSTGRES_PASSWORD') ||
+            '1234',
+          database:
+            process.env.POSTGRES_DB ||
+            configService.get<string>('POSTGRES_DB') ||
+            'carrot_ai',
+          entities: [
+            User,
+            ChatSession,
+            ChatMessageEntity,
+            DocumentChunkEntity,
+            KnowledgeSourceEntity,
+            UserKnowledgeSourceEntity,
+            IngestionJobEntity,
+          ],
+          migrations: [
+            path.join(__dirname, 'database', 'migrations', '*{.ts,.js}'),
+          ],
+          synchronize: false,
+          migrationsRun: false,
         };
       },
     }),
@@ -51,6 +84,7 @@ import { AgentModule } from './agent/agent.module';
     SessionsModule,
     RagModule,
     AgentModule,
+    CacheModule,
   ],
   controllers: [AppController],
   providers: [AppService],
