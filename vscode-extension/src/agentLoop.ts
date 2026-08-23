@@ -64,6 +64,49 @@ export class AgentLoop {
     let finalCorrections = 0;
     let totalCorrections = 0;
     let turnNumber = 0;
+    const angularRequest = angularProjectRequest(prompt);
+    if (angularRequest && this.options.registry.definitions().some(definition => definition.name === 'create_angular_project')) {
+      const call = { type: 'tool_call' as const, id: 'automatic_create_angular_project', tool: 'create_angular_project', arguments: angularRequest };
+      this.options.onActivity?.({ tool: call.tool, status: 'running', label: `Creating Angular project ${angularRequest.name}…` });
+      const started = Date.now();
+      const result = await this.options.registry.execute(call, this.options.context);
+      toolDurationMs += Date.now() - started;
+      toolResults.push(result);
+      this.options.onActivity?.({ tool: call.tool, status: result.error ? 'failed' : 'complete', label: result.error ? `Angular project creation failed: ${result.error}` : `Created Angular project ${angularRequest.name}` });
+      return {
+        final: result.error
+          ? `I could not create the Angular project: ${result.error}`
+          : `Created the Angular project \`${angularRequest.name}\` and added it to the VS Code workspace.`,
+        toolResults,
+        metrics: { turns: 0, modelDurationMs, toolDurationMs, cacheHits, correctiveRetries: totalCorrections, peakContextCharacters },
+      };
+    }
+    // Agent mode starts with real VS Code state. This removes the need for the
+    // user to attach the active file manually and grounds follow-up tool calls.
+    for (const [id, tool] of [
+      ['automatic_project_info', 'get_project_info'],
+      ['automatic_open_files', 'get_open_files'],
+      ['automatic_current_file', 'get_current_file'],
+    ] as const) {
+      if (!this.options.registry.definitions().some(definition => definition.name === tool)) continue;
+      const call = { type: 'tool_call' as const, id, tool, arguments: {} };
+      const started = Date.now();
+      const result = await this.options.registry.execute(call, this.options.context);
+      toolDurationMs += Date.now() - started;
+      toolResults.push(result);
+      collectEvidence(tool, call.arguments, result, readPaths, discoveredPaths);
+      if (!result.error) cache.set(readOnlyCacheKey(tool, call.arguments)!, result);
+      messages.push({
+        role: 'user',
+        content: JSON.stringify({
+          ...result,
+          automatic: true,
+          instruction: tool === 'get_current_file'
+            ? 'This is the active VS Code editor and its current contents. Treat references such as this file, this code, current page, or open page as referring to it.'
+            : 'This is trusted VS Code workspace state supplied by the extension host. Use it to understand the current project before choosing further tools.',
+        }),
+      });
+    }
     if (this.options.requiresLiveWeb && hasWebTools(this.options.registry)) {
       const searchCall = { type: 'tool_call' as const, id: 'automatic_web_search', tool: 'web_search', arguments: { query: prompt } };
       const searchStarted = Date.now(); const searchResult = await this.options.registry.execute(searchCall, this.options.context);
@@ -261,7 +304,7 @@ ${JSON.stringify(this.options.registry.definitions())}`;
 
 const READ_ONLY_CACHE_TOOLS = new Set([
   'get_project_info', 'detect_project_commands', 'get_workspace_tree', 'search_files', 'search_workspace', 'read_file', 'read_file_range',
-  'get_current_file', 'get_selection', 'get_diagnostics', 'get_git_status', 'get_git_diff', 'get_git_log', 'check_port', 'find_process', 'health_check',
+  'get_open_files', 'get_current_file', 'get_selection', 'get_diagnostics', 'get_git_status', 'get_git_diff', 'get_git_log', 'check_port', 'find_process', 'health_check',
 ]);
 
 function readOnlyCacheKey(tool: string, args: Record<string, unknown>): string | undefined {
@@ -328,7 +371,8 @@ function collectUrls(value: unknown, target: Set<string>): void {
 }
 
 export function requiresLiveWeb(prompt: string): boolean {
-  return /\b(latest|current|currently|recent|today|news|update(?:s|d)?|release(?:s|d)?|documentation|docs|error|issue|product|technology|technologies|idea|ideas|search (?:the )?(?:web|internet)|look up|online|internet)\b/i.test(prompt);
+  if (/\b(?:current|currently)(?:\s+open)?\s+(?:file|code|editor|tab|page|workspace|project)\b/i.test(prompt)) return false;
+  return /\b(latest|current|currently|recent|today|news|release(?:s|d)?|search (?:the )?(?:web|internet)|look up|online|internet)\b/i.test(prompt);
 }
 
 export function projectSearchPlan(prompt: string, maxTerms = 8): string[] {
@@ -349,6 +393,10 @@ function collectEvidence(tool: string, args: Record<string, unknown>, result: To
   if (result.error) return;
   const requestedPath = typeof args.path === 'string' ? normalizePath(args.path) : undefined;
   if ((tool === 'read_file' || tool === 'read_file_range') && requestedPath && resultHasContent(result.result)) readPaths.add(requestedPath);
+  if (tool === 'get_current_file' && resultHasContent(result.result)) {
+    const activePath = (result.result as Record<string, unknown>).path;
+    if (typeof activePath === 'string') readPaths.add(normalizePath(activePath));
+  }
   collectPaths(result.result, discoveredPaths);
   if (requestedPath) discoveredPaths.add(requestedPath);
 }
@@ -426,11 +474,28 @@ function validateProjectFinal(prompt: string, final: string, searches: number, r
 function normalizePath(value: string): string { return value.replaceAll('\\', '/').replace(/^\.\//, '').toLowerCase(); }
 
 export function looksLikeProjectTask(prompt: string): boolean {
-  return /\b(fix|add|implement|change|modify|refactor|debug|project|codebase|file|build|test|lint|typecheck|diagnostic|authentication|api|component|service|port|process|restart|start|health|git|commit|pull)\b/i.test(prompt);
+  return /\b(fix|add|implement|change|modify|refactor|debug|create|generate|scaffold|project|workspace|codebase|code|file|editor|tab|page|build|test|lint|typecheck|diagnostic|authentication|api|component|service|port|process|restart|start|health|git|commit|pull|angular)\b/i.test(prompt);
 }
 
 export function requiresAgentTools(prompt: string): boolean {
   return looksLikeProjectTask(prompt) || /\b(clear|free|kill|stop|find|check)\b.{0,30}\b(port|process|pid)\b/i.test(prompt);
+}
+
+export function angularProjectRequest(prompt: string): Record<string, unknown> | undefined {
+  if (!/\b(?:create|generate|scaffold|make|start)\b[\s\S]{0,100}\b(?:new\s+)?angular\s+(?:app|application|project)\b/i.test(prompt)
+      && !/\bangular\s+(?:app|application|project)\b[\s\S]{0,100}\b(?:create|generate|scaffold|make)\b/i.test(prompt)) return undefined;
+  if (/\b(?:how|explain|show me (?:how|the command))\b/i.test(prompt)) return undefined;
+  const name = prompt.match(/\b(?:named|called)\s+[`'"]?([a-z][a-z0-9-]{0,49})/i)?.[1]
+    ?? prompt.match(/\bng\s+new\s+[`'"]?([a-z][a-z0-9-]{0,49})/i)?.[1]
+    ?? 'angular-app';
+  const style = prompt.match(/\b(scss|sass|less|css)\b/i)?.[1]?.toLowerCase() ?? 'scss';
+  return {
+    name: name.toLowerCase(),
+    routing: !/\b(?:without|no)\s+routing\b/i.test(prompt),
+    style,
+    standalone: !/\b(?:without|no|non[- ]?)\s*standalone\b/i.test(prompt),
+    skipGit: !/\b(?:with|initialize|init)\s+git\b/i.test(prompt),
+  };
 }
 
 export function requiresWorkspaceEvidence(prompt: string): boolean {

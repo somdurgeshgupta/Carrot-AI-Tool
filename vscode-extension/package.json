@@ -2,13 +2,15 @@
   "name": "carrot-vscode",
   "displayName": "Carrot AI",
   "description": "Connect Carrot AI to VS Code with a controlled workspace boundary.",
-  "version": "0.3.16",
+  "version": "0.3.22",
   "publisher": "carrot-ai-local",
   "private": true,
   "engines": {
     "vscode": "^1.125.0"
   },
-  "categories": ["Chat"],
+  "categories": [
+    "Chat"
+  ],
   "main": "./out/extension.js",
   "activationEvents": [
     "onChatParticipant:carrot.agent",
@@ -156,7 +158,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/carrotClient.test.js out/modelPolicy.test.js out/modelCompatibility.test.js out/workspacePolicy.test.js out/sidebarHtml.test.js out/sidebarProtocol.test.js out/sessionPolicy.test.js out/commandPolicy.test.js out/projectCommands.test.js out/processTools.test.js out/searchSemantics.test.js out/toolProtocol.test.js out/toolRegistry.test.js out/webSearchTool.test.js out/agentLoop.test.js out/manifest.test.js"
+    "test": "npm run compile && node --test out/carrotClient.test.js out/modelPolicy.test.js out/modelCompatibility.test.js out/workspacePolicy.test.js out/sidebarHtml.test.js out/sidebarProtocol.test.js out/sessionPolicy.test.js out/commandPolicy.test.js out/projectCommands.test.js out/projectScaffolding.test.js out/processTools.test.js out/searchSemantics.test.js out/toolProtocol.test.js out/toolRegistry.test.js out/webSearchTool.test.js out/agentLoop.test.js out/documentationResources.test.js out/manifest.test.js"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

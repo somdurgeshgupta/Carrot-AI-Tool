@@ -12,6 +12,7 @@ import { executeBounded, startDetached } from './safeExecution';
 import { checkPort, findProcess, killPort, terminateProcess } from './processTools';
 import { commandForAction, ProjectAction } from './projectCommands';
 import { checkHealth, HealthTarget } from './healthTools';
+import { angularProjectOptions, resolveAngularCliInvocation } from './projectScaffolding';
 
 const execFileAsync = promisify(execFile);
 const EXCLUDE = '{**/node_modules/**,**/dist/**,**/build/**,**/coverage/**,**/.git/**,**/.angular/**,**/.next/**,**/.cache/**}';
@@ -30,6 +31,37 @@ export function createWorkspaceToolRegistry(
   const folders = vscode.workspace.workspaceFolders ?? [];
   const guard = new WorkspaceGuard(folders.map(folder => folder.uri.fsPath));
   const registry = new ToolRegistry(debug);
+
+  registry.register(tool('create_angular_project', 'Create a complete Angular project. If no workspace is open, ask the user to select its parent folder. The project name defaults to angular-app. Runs Angular CLI directly without unrestricted shell access.', OperationRisk.NORMAL_WRITE,
+    schemas.object({ name: schemas.string, routing: schemas.boolean, style: schemas.string, standalone: schemas.boolean, skipGit: schemas.boolean }), true,
+    args => { angularProjectOptions(args); },
+    async (args, context) => {
+      const options = angularProjectOptions(args);
+      let parentUri: vscode.Uri | undefined = folders[0]?.uri;
+      if (!parentUri) {
+        const selected = await vscode.window.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+          openLabel: `Create ${options.name} here`,
+          title: 'Select the parent folder for the new Angular project',
+        });
+        parentUri = selected?.[0];
+      }
+      if (!parentUri || parentUri.scheme !== 'file') throw new Error('Angular project creation was cancelled because no parent folder was selected.');
+      const projectUri = vscode.Uri.joinPath(parentUri, options.name);
+      let targetExists = false;
+      try { await vscode.workspace.fs.stat(projectUri); targetExists = true; } catch {}
+      if (targetExists) throw new Error(`A file or folder named ${options.name} already exists in the selected parent folder.`);
+      const invocation = await resolveAngularCliInvocation(options);
+      const result = await executeBounded(invocation.executable, invocation.args, {
+        cwd: parentUri.fsPath, timeoutMs: 10 * 60_000, outputLimit: 100_000, signal: context.signal,
+      });
+      if (result.exitCode !== 0 || result.timedOut) throw new Error(`Angular CLI failed${result.timedOut ? ' because it timed out' : ` with exit code ${result.exitCode}`}: ${result.output.slice(-2_000)}`);
+      if (!folders.length) vscode.workspace.updateWorkspaceFolders(0, 0, { uri: projectUri, name: options.name });
+      return { created: true, project: options.name, openedInWorkspace: !folders.length, output: result.output, durationMs: result.durationMs };
+    },
+    args => `Create Angular project "${angularProjectOptions(args).name}" using Angular CLI?`));
 
   registry.register(tool('get_project_info', 'Inspect project metadata, scripts, dependencies, frameworks, and Git presence.', OperationRisk.READ_ONLY,
     schemas.object({}), false, () => {}, async () => {
@@ -158,13 +190,35 @@ export function createWorkspaceToolRegistry(
   registry.register(readTool('read_file', false));
   registry.register(readTool('read_file_range', true));
 
-  registry.register(tool('get_current_file', 'Return the active editor file path and language without absolute paths.', OperationRisk.READ_ONLY,
+  registry.register(tool('get_open_files', 'Return workspace files currently open in VS Code editor tabs, without absolute paths.', OperationRisk.READ_ONLY,
+    schemas.object({}), false, () => {}, async () => {
+      const files: Array<{ root: string; rootIndex: number; path: string; active: boolean }> = [];
+      const activeUri = vscode.window.activeTextEditor?.document.uri.toString();
+      for (const group of vscode.window.tabGroups.all) {
+        for (const tab of group.tabs) {
+          if (!(tab.input instanceof vscode.TabInputText)) continue;
+          const owned = ownedPath(folders, tab.input.uri);
+          if (!owned || isSensitiveFile(owned.path)) continue;
+          files.push({ ...owned, active: tab.input.uri.toString() === activeUri });
+        }
+      }
+      return { files: files.slice(0, 100), count: files.length, truncated: files.length > 100 };
+    }));
+
+  registry.register(tool('get_current_file', 'Return the active workspace editor file and its current unsaved text, without absolute paths.', OperationRisk.READ_ONLY,
     schemas.object({}), false, () => {}, async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor || editor.document.uri.scheme !== 'file') return {};
       const owned = ownedPath(folders, editor.document.uri);
       if (!owned || isSensitiveFile(owned.path)) return {};
-      return { ...owned, language: editor.document.languageId };
+      const text = editor.document.getText();
+      return {
+        ...owned,
+        language: editor.document.languageId,
+        content: text.slice(0, MAX_FULL_READ_CHARACTERS),
+        truncated: text.length > MAX_FULL_READ_CHARACTERS,
+        dirty: editor.document.isDirty,
+      };
     }));
 
   registry.register(tool('get_selection', 'Return the current editor selection when it is inside a non-sensitive workspace file.', OperationRisk.READ_ONLY,

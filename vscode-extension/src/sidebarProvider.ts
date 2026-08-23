@@ -12,11 +12,13 @@ import { AgentCompatibilityMap, completedCompatibility, failedCompatibility, wit
 import { ToolDefinition } from './toolProtocol';
 import { ToolDebugEvent } from './toolRegistry';
 import { isSensitiveFile } from './workspacePolicy';
+import { DocumentationResourceStore, DocumentationSnapshot, WorkspaceResourceFile } from './documentationResources';
 
 export const CARROT_VIEW_ID = 'carrot.sidebar';
 export const MODEL_KEY = 'carrot.selectedModel';
 export const SESSION_KEY = 'carrot.currentSessionId';
 export const TOKEN_KEY = 'carrot.accessToken';
+const DOCUMENTATION_CACHE_KEY = 'carrot.documentationResources.v1';
 export const MODE_KEY = 'carrot.composerMode';
 export const DEFAULT_EXTENSION_MODEL_ID = 'local:qwen2.5-coder:7b';
 const WEB_SEARCH_KEY = 'carrot.webSearchEnabled';
@@ -215,7 +217,9 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
     const selectedContext = this.contextText();
     this.pendingContexts = [];
     await this.postContextState();
-    if (mode === 'agent' || requiresAgentTools(prompt)) {
+    // Ask mode is deliberately conversational/browser-oriented. Workspace
+    // inspection and every mutating tool are available only in Agent mode.
+    if (mode === 'agent') {
       await this.sendAgentMessage(prompt, useWeb, selectedContext);
       return;
     }
@@ -279,7 +283,12 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
         await this.context.workspaceState.update(SESSION_KEY, sessionId);
       }
 
-      const agentPrompt = selectedContext ? `${prompt}\n\nUser-selected VS Code context:\n${selectedContext}` : prompt;
+      const documentation = await this.documentationContext(api, prompt, controller.signal);
+      const contextSections = [
+        selectedContext ? `User-selected VS Code context:\n${selectedContext}` : '',
+        documentation,
+      ].filter(Boolean);
+      const agentPrompt = contextSections.length ? `${prompt}\n\n${contextSections.join('\n\n')}` : prompt;
       const useWeb = webSearch || requiresLiveWeb(prompt);
       const loop = new AgentLoop({
         registry: createWorkspaceToolRegistry(
@@ -367,6 +376,41 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
   async testAgentTools(): Promise<void> {
     if (!this.view) throw new Error('Open the Carrot AI sidebar before testing agent tools.');
     await this.sendAgentMessage('Find package.json in the current workspace. Use workspace tools to locate it, read the relevant package.json, and return its project name. Do not modify files.');
+  }
+
+  private async documentationContext(api: CarrotClient, prompt: string, signal: AbortSignal): Promise<string> {
+    const files = await vscode.workspace.findFiles(
+      '**/{package.json,package-lock.json,pom.xml,build.gradle,build.gradle.kts,gradle.properties,pyproject.toml,requirements.txt,Pipfile,go.mod,Cargo.toml,*.csproj,*.fsproj,composer.json,Gemfile,pubspec.yaml}',
+      '{**/node_modules/**,**/vendor/**,**/dist/**,**/build/**,**/target/**,**/.git/**}',
+      80,
+    );
+    const resources: WorkspaceResourceFile[] = [];
+    for (const uri of files) {
+      try {
+        const bytes = await vscode.workspace.fs.readFile(uri);
+        if (bytes.byteLength > 200_000) continue;
+        resources.push({ path: vscode.workspace.asRelativePath(uri, false), content: new TextDecoder().decode(bytes) });
+      } catch {
+        // An unreadable secondary manifest must not prevent workspace work.
+      }
+    }
+    if (!resources.length) return '';
+    await this.post({ type: 'agentActivity', activity: { status: 'running', label: 'Loading version-matched official documentation…' } });
+    const store = new DocumentationResourceStore(
+      {
+        get: () => this.context.globalState.get<Record<string, DocumentationSnapshot>>(DOCUMENTATION_CACHE_KEY),
+        update: value => this.context.globalState.update(DOCUMENTATION_CACHE_KEY, value),
+      },
+      (url, requestSignal) => api.fetchUrl(url, requestSignal),
+    );
+    const result = await store.contextForFiles(resources, prompt, signal);
+    const detail = result.refreshed
+      ? `Updated ${result.refreshed} official documentation resource(s)`
+      : result.reused
+        ? `Loaded ${result.reused} cached documentation resource(s)`
+        : 'No supported documentation resource was available';
+    await this.post({ type: 'agentActivity', activity: { status: result.context ? 'complete' : 'failed', label: detail } });
+    return result.context;
   }
 
   private async addContext(kind: 'currentFile' | 'selection' | 'file'): Promise<void> {

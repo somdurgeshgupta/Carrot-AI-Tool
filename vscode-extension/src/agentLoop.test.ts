@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AgentLoop, requiresAgentTools, requiresLiveWeb } from './agentLoop';
+import { AgentLoop, angularProjectRequest, requiresAgentTools, requiresLiveWeb } from './agentLoop';
 import { ToolRegistry, OperationRisk } from './toolRegistry';
 
 function registry(): ToolRegistry {
@@ -154,7 +154,7 @@ test('reuses identical read-only tool results within one task', async () => {
   const loop = new AgentLoop({ registry: value, turn: async () => responses.shift()!, context: { signal: new AbortController().signal, approve: async () => true } });
   const result = await loop.run('inspect project');
   assert.equal(executions, 1);
-  assert.equal(result.metrics.cacheHits, 1);
+  assert.equal(result.metrics.cacheHits, 2);
 });
 
 test('does not accept an editing final before write, diagnostics, and validation succeed', async () => {
@@ -200,10 +200,63 @@ test('requires live search, a fetched page, and a cited retrieved URL', async ()
 
 test('detects prompts that require current internet information', () => {
   for (const prompt of ['latest Angular updates', 'current news', 'search the internet for this NestJS error', 'recent product ideas']) assert.equal(requiresLiveWeb(prompt), true);
+  for (const prompt of ['current open page', 'current file', 'currently open code editor']) assert.equal(requiresLiveWeb(prompt), false);
   assert.equal(requiresLiveWeb('explain this local function'), false);
 });
 
+test('automatically supplies project, open-tab, and active-file context in agent mode', async () => {
+  const value = new ToolRegistry();
+  const executed: string[] = [];
+  const results: Record<string, unknown> = {
+    get_project_info: { workspace: 'Carrot AI', projects: [{ frameworks: ['Angular', 'NestJS'] }] },
+    get_open_files: { files: [{ path: 'src/app.ts', active: true }] },
+    get_current_file: { path: 'src/app.ts', language: 'typescript', content: 'export const carrot = true;', dirty: true },
+  };
+  for (const name of Object.keys(results)) value.register({
+    name, description: name, inputSchema: {}, risk: OperationRisk.READ_ONLY, requiresApproval: false,
+    validate: () => {}, execute: async () => { executed.push(name); return results[name]; },
+  });
+  let supplied = '';
+  const loop = new AgentLoop({
+    registry: value,
+    turn: async (_system, messages) => { supplied = messages.map(message => message.content).join('\n'); return '{"type":"final","content":"The active src/app.ts exports carrot."}'; },
+    context: { signal: new AbortController().signal, approve: async () => true },
+    requiresWorkspaceEvidence: true,
+  });
+  const result = await loop.run('What is this current open page about?');
+  assert.deepEqual(executed, ['get_project_info', 'get_open_files', 'get_current_file']);
+  assert.match(supplied, /export const carrot = true/);
+  assert.match(supplied, /current page/);
+  assert.equal(result.final, 'The active src/app.ts exports carrot.');
+});
+
 test('routes clear-port and computer-control requests to agent tools', () => {
-  for (const prompt of ['clear port 3000', 'kill the process on port 4200', 'check port 8080', 'restart backend', 'git status']) assert.equal(requiresAgentTools(prompt), true);
+  for (const prompt of ['clear port 3000', 'kill the process on port 4200', 'check port 8080', 'restart backend', 'git status', 'what is this code about?', 'inspect the current page', 'generate a new Angular project']) assert.equal(requiresAgentTools(prompt), true);
   assert.equal(requiresAgentTools('write a poem about carrots'), false);
+});
+
+test('extracts direct Angular creation requests for deterministic tool execution', () => {
+  assert.deepEqual(angularProjectRequest('Create a new Angular project named shopping-app with routing, SCSS, and standalone components.'), {
+    name: 'shopping-app', routing: true, style: 'scss', standalone: true, skipGit: true,
+  });
+  assert.equal(angularProjectRequest('Explain how to create an Angular project'), undefined);
+  assert.equal(angularProjectRequest('What is this Angular project?'), undefined);
+});
+
+test('executes clear Angular creation requests without relying on the model to choose the tool', async () => {
+  const value = new ToolRegistry();
+  let calls = 0;
+  value.register({
+    name: 'create_angular_project', description: 'create', inputSchema: {}, risk: OperationRisk.NORMAL_WRITE, requiresApproval: true,
+    validate: () => {}, execute: async args => { calls++; return { created: true, project: args.name }; },
+  });
+  const loop = new AgentLoop({
+    registry: value,
+    turn: async () => { throw new Error('The model must not be called for deterministic scaffolding.'); },
+    context: { signal: new AbortController().signal, approve: async () => true },
+  });
+  const result = await loop.run('Create a new Angular project named shopping-app with SCSS');
+  assert.equal(calls, 1);
+  assert.match(result.final, /Created.*shopping-app/);
+  assert.equal(result.metrics.turns, 0);
 });
