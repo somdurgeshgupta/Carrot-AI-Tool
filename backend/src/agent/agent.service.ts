@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ChatService } from '../chat/chat.service';
 import { AgentTurnDto } from './agent.controller';
+import { WebToolsService } from './web-tools.service';
 
 @Injectable()
 export class AgentService {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(private readonly chatService: ChatService, private readonly webTools: WebToolsService) {}
 
   turn(userId: string, dto: AgentTurnDto) {
     return this.chatService.handleChatCompletion({
@@ -20,7 +21,8 @@ export class AgentService {
   }
 
   async webSearch(query: string) {
-    const results = await this.chatService.performWebSearch(query.trim());
-    return { query: query.trim(), results };
+    return this.webTools.search(query);
   }
+
+  fetchUrl(url: string) { return this.webTools.fetchUrl(url); }
 }

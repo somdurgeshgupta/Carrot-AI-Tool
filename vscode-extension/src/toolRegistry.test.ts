@@ -31,7 +31,7 @@ test('does not execute a rejected write operation', async () => {
   assert.match(result.error!, /rejected/);
 });
 
-test('debug events omit edit content and report only safe arguments and counts', async () => {
+test('action-log events omit prompts, queries, edit content, and report counts', async () => {
   const events: any[] = [];
   const registry = new ToolRegistry(event => events.push(event));
   registry.register({
@@ -43,7 +43,7 @@ test('debug events omit edit content and report only safe arguments and counts',
     { type: 'tool_call', id: '1', tool: 'search', arguments: { query: 'auth', oldText: 'SECRET-CONTENT' } },
     { signal, approve: async () => true },
   );
-  assert.deepEqual(events[0].arguments, { query: 'auth' });
+  assert.deepEqual(events[0].arguments, {});
   assert.equal(JSON.stringify(events).includes('SECRET-CONTENT'), false);
   assert.equal(events.at(-1).resultCount, 1);
 });

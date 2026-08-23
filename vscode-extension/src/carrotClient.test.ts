@@ -208,10 +208,10 @@ test('calls the authenticated bounded agent web-search endpoint', async () => {
     baseUrl: 'http://localhost:3000/api', modelId: 'auto', getToken: token,
     fetchImplementation: async (input, init) => {
       request = new Request(input, init);
-      return new Response(JSON.stringify({ query: 'Angular release', results: '[NPM]: 21.0.0' }));
+      return new Response(JSON.stringify({ query: 'Angular release', provider: 'test', results: [{ title: 'Angular', url: 'https://angular.dev', snippet: '21', source: 'test' }] }));
     },
   });
-  assert.deepEqual(await client.webSearch('Angular release'), { query: 'Angular release', results: '[NPM]: 21.0.0' });
+  assert.deepEqual(await client.webSearch('Angular release'), { query: 'Angular release', provider: 'test', results: [{ title: 'Angular', url: 'https://angular.dev', snippet: '21', source: 'test' }] });
   assert.equal(request?.url, 'http://localhost:3000/api/agent/web-search');
   assert.equal(request?.headers.get('authorization'), 'Bearer test-token');
   assert.deepEqual(JSON.parse(await request!.clone().text()), { query: 'Angular release' });

@@ -5,7 +5,7 @@ import { selectableChatModels, validateModelSelection } from './modelPolicy';
 import { getSidebarHtml } from './sidebarHtml';
 import { parseSidebarMessage, SidebarMessage } from './sidebarProtocol';
 import { hasConversationMessages } from './sessionPolicy';
-import { AgentLoop } from './agentLoop';
+import { AgentLoop, requiresAgentTools, requiresLiveWeb } from './agentLoop';
 import { createWorkspaceToolRegistry } from './workspaceTools';
 import { OperationRisk } from './toolRegistry';
 import { AgentCompatibilityMap, completedCompatibility, failedCompatibility, withCompatibility } from './modelCompatibility';
@@ -209,13 +209,14 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async sendMessage(prompt: string, mode: 'ask' | 'agent', webSearch: boolean): Promise<void> {
+    const useWeb = webSearch || requiresLiveWeb(prompt);
     await this.context.globalState.update(MODE_KEY, mode);
     await this.context.workspaceState.update(WEB_SEARCH_KEY, webSearch);
     const selectedContext = this.contextText();
     this.pendingContexts = [];
     await this.postContextState();
-    if (mode === 'agent') {
-      await this.sendAgentMessage(prompt, webSearch, selectedContext);
+    if (mode === 'agent' || requiresAgentTools(prompt)) {
+      await this.sendAgentMessage(prompt, useWeb, selectedContext);
       return;
     }
     if (this.currentAgent) throw new Error('A Carrot request is already running.');
@@ -234,7 +235,7 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
         await this.context.workspaceState.update(SESSION_KEY, sessionId);
       }
       await this.post({ type: 'streamStart', prompt });
-      await api.sendChatStream(prompt, { modelId, sessionId, localOnly, webSearchEnabled: webSearch, context: selectedContext, signal: controller.signal },
+      await api.sendChatStream(prompt, { modelId, sessionId, localOnly, webSearchEnabled: useWeb, context: selectedContext, signal: controller.signal },
         chunk => { void this.post({ type: 'streamChunk', chunk }); });
       await this.refresh();
     } catch (error) {
@@ -279,10 +280,16 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
       }
 
       const agentPrompt = selectedContext ? `${prompt}\n\nUser-selected VS Code context:\n${selectedContext}` : prompt;
+      const useWeb = webSearch || requiresLiveWeb(prompt);
       const loop = new AgentLoop({
         registry: createWorkspaceToolRegistry(
-          debugAgent ? event => this.debugTool(event) : undefined,
-          webSearch ? (query, signal) => api.webSearch(query, signal) : undefined,
+          event => this.debugTool(event),
+          useWeb ? (query, signal) => api.webSearch(query, signal) : undefined,
+          useWeb ? (url, signal) => api.fetchUrl(url, signal) : undefined,
+          {
+            get: () => this.context.workspaceState.get('carrot.projectCommands.v1', []),
+            set: commands => this.context.workspaceState.update('carrot.projectCommands.v1', commands),
+          },
         ),
         turn: (systemPrompt, messages) => api.runAgentTurn({
           modelId, localOnly, systemPrompt, messages, signal: controller.signal,
@@ -298,6 +305,7 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
         localOnly,
         alternativeModels: selectableChatModels(models, localOnly).map(model => model.id),
         requiresWorkspaceEvidence: true,
+        requiresLiveWeb: requiresLiveWeb(prompt),
         maxIterations,
         maxDurationMs,
       });
@@ -339,9 +347,9 @@ export class CarrotSidebarProvider implements vscode.WebviewViewProvider {
     const choice = await vscode.window.showWarningMessage(
       `${risk}: ${summary}`,
       { modal: true },
-      'Approve',
+      definition.risk === OperationRisk.HIGH_RISK ? 'Approve High-Risk Action' : 'Approve',
     );
-    return choice === 'Approve';
+    return choice === 'Approve' || choice === 'Approve High-Risk Action';
   }
 
   private debugTool(event: ToolDebugEvent): void {

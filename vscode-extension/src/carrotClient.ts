@@ -206,13 +206,20 @@ export class CarrotClient {
     return content;
   }
 
-  async webSearch(query: string, signal?: AbortSignal): Promise<{ query: string; results: string }> {
+  async webSearch(query: string, signal?: AbortSignal): Promise<{ query: string; provider: string; results: Array<{ title: string; url: string; snippet: string; source: string }> }> {
     const response = await this.authenticatedRequest(this.url('/agent/web-search'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }), signal,
     }, 30_000);
     const body = await this.readJson(response);
-    if (!response.ok || typeof body?.results !== 'string') throw new CarrotClientError(this.messageFrom(body, 'Carrot web search failed.'), response.status);
-    return { query: typeof body.query === 'string' ? body.query : query, results: body.results };
+    if (!response.ok || !Array.isArray(body?.results)) throw new CarrotClientError(this.messageFrom(body, 'Carrot web search failed.'), response.status);
+    return { query: typeof body.query === 'string' ? body.query : query, provider: typeof body.provider === 'string' ? body.provider : 'unknown', results: body.results };
+  }
+
+  async fetchUrl(url: string, signal?: AbortSignal): Promise<{ url: string; status: number; title: string; text: string; truncated: boolean; untrusted: true }> {
+    const response = await this.authenticatedRequest(this.url('/agent/fetch-url'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }), signal }, 15_000);
+    const body = await this.readJson(response);
+    if (!response.ok || typeof body?.text !== 'string') throw new CarrotClientError(this.messageFrom(body, 'Carrot web fetch failed.'), response.status);
+    return body;
   }
 
   async appendSessionMessage(sessionId: string, role: 'user' | 'assistant', content: string, modelId?: string): Promise<void> {

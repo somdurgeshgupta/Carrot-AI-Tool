@@ -34,6 +34,8 @@ export class AgentWebSearchDto {
   query: string;
 }
 
+export class AgentFetchUrlDto { @IsString() @MaxLength(2000) url: string; }
+
 @Controller('agent')
 @UseGuards(JwtAuthGuard)
 export class AgentController {
@@ -48,4 +50,7 @@ export class AgentController {
   webSearch(@Body() dto: AgentWebSearchDto) {
     return this.agentService.webSearch(dto.query);
   }
+
+  @Post('fetch-url')
+  fetchUrl(@Body() dto: AgentFetchUrlDto) { return this.agentService.fetchUrl(dto.url); }
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AgentLoop } from './agentLoop';
+import { AgentLoop, requiresAgentTools, requiresLiveWeb } from './agentLoop';
 import { ToolRegistry, OperationRisk } from './toolRegistry';
 
 function registry(): ToolRegistry {
@@ -161,7 +161,7 @@ test('does not accept an editing final before write, diagnostics, and validation
   const value = new ToolRegistry();
   for (const name of ['edit_file', 'get_diagnostics', 'run_command']) value.register({
     name, description: name, inputSchema: {}, risk: name === 'get_diagnostics' ? OperationRisk.READ_ONLY : OperationRisk.NORMAL_WRITE,
-    requiresApproval: name !== 'get_diagnostics', validate: () => {}, execute: async () => name === 'edit_file' ? { changedFiles: [{ path: 'src/a.ts' }] } : {},
+    requiresApproval: name !== 'get_diagnostics', validate: () => {}, execute: async () => name === 'edit_file' ? { changedFiles: [{ path: 'src/a.ts' }] } : name === 'run_command' ? { exitCode: 0 } : {},
   });
   const responses = [
     '{"type":"final","content":"Done"}',
@@ -175,4 +175,35 @@ test('does not accept an editing final before write, diagnostics, and validation
   const result = await loop.run('Fix one small issue in this file.');
   assert.equal(result.final, 'Edited, checked diagnostics, and tests passed.');
   assert.equal(result.metrics.correctiveRetries, 2);
+});
+
+test('requires a passing rerun after a failed validation command', async () => {
+  const value = new ToolRegistry(); let runs = 0;
+  for (const name of ['edit_file', 'get_diagnostics', 'run_project_action']) value.register({
+    name, description: name, inputSchema: {}, risk: name === 'get_diagnostics' ? OperationRisk.READ_ONLY : OperationRisk.NORMAL_WRITE,
+    requiresApproval: name !== 'get_diagnostics', validate: () => {}, execute: async () => name === 'edit_file' ? { changedFiles: [{}] } : name === 'run_project_action' ? { exitCode: runs++ ? 0 : 1, output: 'compile error' } : {},
+  });
+  const responses = ['{"tool":"edit_file","arguments":{}}', '{"tool":"get_diagnostics","arguments":{}}', '{"tool":"run_project_action","arguments":{}}', '{"type":"final","content":"done"}', '{"tool":"run_project_action","arguments":{}}', '{"type":"final","content":"verified"}'];
+  const loop = new AgentLoop({ registry: value, turn: async () => responses.shift()!, context: { signal: new AbortController().signal, approve: async () => true } });
+  assert.equal((await loop.run('Fix this issue.')).final, 'verified');
+  assert.equal(runs, 2);
+});
+
+test('requires live search, a fetched page, and a cited retrieved URL', async () => {
+  const registry = new ToolRegistry();
+  registry.register({ name: 'web_search', description: 'search', inputSchema: {}, risk: OperationRisk.READ_ONLY, requiresApproval: false, validate: () => {}, execute: async () => ({ results: [{ url: 'https://angular.dev/press-kit' }] }) });
+  registry.register({ name: 'fetch_url', description: 'fetch', inputSchema: {}, risk: OperationRisk.READ_ONLY, requiresApproval: false, validate: () => {}, execute: async () => ({ url: 'https://angular.dev/press-kit', text: 'current', untrusted: true }) });
+  const responses = ['{"type":"final","content":"I cannot access current data"}', '{"tool":"web_search","arguments":{}}', '{"tool":"fetch_url","arguments":{}}', '{"type":"final","content":"Current information: https://angular.dev/press-kit"}'];
+  const loop = new AgentLoop({ registry, turn: async () => responses.shift()!, context: { signal: new AbortController().signal, approve: async () => true }, requiresLiveWeb: true });
+  assert.match((await loop.run('latest Angular updates')).final, /https:\/\/angular\.dev/);
+});
+
+test('detects prompts that require current internet information', () => {
+  for (const prompt of ['latest Angular updates', 'current news', 'search the internet for this NestJS error', 'recent product ideas']) assert.equal(requiresLiveWeb(prompt), true);
+  assert.equal(requiresLiveWeb('explain this local function'), false);
+});
+
+test('routes clear-port and computer-control requests to agent tools', () => {
+  for (const prompt of ['clear port 3000', 'kill the process on port 4200', 'check port 8080', 'restart backend', 'git status']) assert.equal(requiresAgentTools(prompt), true);
+  assert.equal(requiresAgentTools('write a poem about carrots'), false);
 });

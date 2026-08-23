@@ -2,8 +2,9 @@ import * as vscode from 'vscode';
 import { CarrotClient, CarrotClientError } from './carrotClient';
 import { CarrotModel, selectableChatModels, validateModelSelection } from './modelPolicy';
 import { CARROT_VIEW_ID, CarrotSidebarProvider, DEFAULT_EXTENSION_MODEL_ID, MODEL_KEY, SESSION_KEY, TOKEN_KEY } from './sidebarProvider';
-import { AgentLoop, looksLikeProjectTask } from './agentLoop';
+import { AgentLoop, requiresAgentTools, requiresLiveWeb } from './agentLoop';
 import { createWorkspaceToolRegistry } from './workspaceTools';
+import { OperationRisk } from './workspacePolicy';
 
 export function activate(context: vscode.ExtensionContext): void {
   const configuration = () => vscode.workspace.getConfiguration('carrot');
@@ -156,12 +157,21 @@ export function activate(context: vscode.ExtensionContext): void {
         sessionId = await api.createSession(modelId);
         await context.workspaceState.update(SESSION_KEY, sessionId);
       }
-      if (looksLikeProjectTask(request.prompt) && vscode.workspace.workspaceFolders?.length) {
+      if (requiresAgentTools(request.prompt) && vscode.workspace.workspaceFolders?.length) {
         const controller = new AbortController();
         const cancellation = token.onCancellationRequested(() => controller.abort());
         try {
+          const useWeb = requiresLiveWeb(request.prompt);
           const loop = new AgentLoop({
-            registry: createWorkspaceToolRegistry(),
+            registry: createWorkspaceToolRegistry(
+              event => debug(`tool ${JSON.stringify(event)}`),
+              useWeb ? (query, signal) => api.webSearch(query, signal) : undefined,
+              useWeb ? (url, signal) => api.fetchUrl(url, signal) : undefined,
+              {
+                get: () => context.workspaceState.get('carrot.projectCommands.v1', []),
+                set: commands => context.workspaceState.update('carrot.projectCommands.v1', commands),
+              },
+            ),
             turn: (systemPrompt, messages) => api.runAgentTurn({
               modelId, localOnly: localOnly(), systemPrompt, messages, signal: controller.signal,
               onMetadata: metadata => debug(`provider selectedModel=${metadata.selectedModelId ?? 'unknown'} provider=${metadata.provider ?? 'unknown'} localOnly=${metadata.localOnly ?? 'unknown'} protocol=${metadata.protocol ?? 'unknown'}`),
@@ -172,9 +182,9 @@ export function activate(context: vscode.ExtensionContext): void {
                 const choice = await vscode.window.showWarningMessage(
                   `${definition.risk}: ${summary}`,
                   { modal: true },
-                  'Approve',
+                  definition.risk === OperationRisk.HIGH_RISK ? 'Approve High-Risk Action' : 'Approve',
                 );
-                return choice === 'Approve';
+                return choice === 'Approve' || choice === 'Approve High-Risk Action';
               },
             },
             onActivity: activity => stream.progress(activity.label),
@@ -183,6 +193,7 @@ export function activate(context: vscode.ExtensionContext): void {
             localOnly: localOnly(),
             alternativeModels: selectableChatModels(models, localOnly()).map(model => model.id),
             requiresWorkspaceEvidence: true,
+            requiresLiveWeb: useWeb,
             maxIterations: configuration().get<number>('agentMaxToolCalls', 20),
             maxDurationMs: configuration().get<number>('agentTimeoutMinutes', 15) * 60_000,
           });

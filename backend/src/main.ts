@@ -2,6 +2,10 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { json, urlencoded } from 'express';
+import {
+  createCorsOriginValidator,
+  localIpv4Networks,
+} from './common/cors-origin';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -16,8 +20,9 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
+  const localNetworks = localIpv4Networks();
   app.enableCors({
-    origin: corsOrigins,
+    origin: createCorsOriginValidator(corsOrigins, localNetworks),
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
     credentials: true,
   });
@@ -35,7 +40,10 @@ async function bootstrap() {
   );
 
   const port = process.env.PORT ?? 3000;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   logger.log(`Application is running on: http://localhost:${port}/api`);
+  logger.log(
+    `CORS allows configured origins and ${localNetworks.length} detected local IPv4 subnet(s)`,
+  );
 }
 bootstrap();

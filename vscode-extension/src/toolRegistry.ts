@@ -57,7 +57,7 @@ export class ToolRegistry {
       return { type: 'tool_result', id: call.id, tool: call.tool, result };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Tool execution failed.';
-      this.debug?.({ stage: 'failed', tool: call.tool, durationMs: Date.now() - started, error: message });
+      this.debug?.({ stage: 'failed', tool: call.tool, durationMs: Date.now() - started, error: sanitizeError(message) });
       return {
         type: 'tool_result',
         id: call.id,
@@ -68,8 +68,16 @@ export class ToolRegistry {
   }
 }
 
+function sanitizeError(value: string): string {
+  return value
+    .replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1[redacted]@')
+    .replace(/\b(bearer\s+)[a-z0-9._~+\/-]+/gi, '$1[redacted]')
+    .replace(/\b(api[_-]?key|token|password|secret)\s*[:=]\s*[^\s,;]+/gi, '$1=[redacted]')
+    .slice(0, 500);
+}
+
 function sanitizeArguments(args: Record<string, unknown>): Record<string, unknown> {
-  const allowed = new Set(['path', 'cwd', 'rootIndex', 'query', 'queries', 'limit', 'depth', 'startLine', 'endLine', 'command', 'timeoutMs', 'create']);
+  const allowed = new Set(['path', 'cwd', 'rootIndex', 'limit', 'depth', 'startLine', 'endLine', 'timeoutMs', 'create', 'port', 'pid', 'expectedPid', 'action', 'target']);
   return Object.fromEntries(Object.entries(args)
     .filter(([key]) => allowed.has(key))
     .map(([key, value]) => [key, typeof value === 'string' ? value.slice(0, 500) : value]));
